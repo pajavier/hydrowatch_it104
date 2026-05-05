@@ -95,10 +95,10 @@ export function Login({ onLogin }: LoginProps) {
   const isSignUp = authMode === "signUp";
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#EEF1EC] px-4 py-10 text-white">
-      <section className="w-full max-w-[500px] rounded-[24px] bg-[#1D3B70] px-8 py-6 shadow-[0_22px_55px_rgba(12,30,67,0.28)] sm:px-12">
+    <main className="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top_left,rgba(56,189,248,0.18),transparent_30%),radial-gradient(circle_at_bottom_right,rgba(124,58,237,0.18),transparent_34%),#070B1A] px-4 py-10 text-white">
+      <section className="w-full max-w-[500px] rounded-[28px] border border-white/10 bg-[#111A38]/95 px-8 py-6 shadow-2xl shadow-black/30 backdrop-blur sm:px-12">
         <div className="mb-6 text-center">
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-[#9FBDD3] shadow-[0_14px_32px_rgba(10,23,54,0.28)]">
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-[#38BDF8] to-[#7C3AED] shadow-lg shadow-sky-500/20">
             <svg
               aria-hidden="true"
               className="h-8 w-8 text-white"
@@ -117,20 +117,20 @@ export function Login({ onLogin }: LoginProps) {
           <h1 className="text-[30px] font-extrabold leading-tight text-white">
             HydroWatch
           </h1>
-          <p className="mt-2 text-sm font-bold text-[#9FBDD3]">
-            IoT-powered water turbidty monitoring system
+          <p className="mt-2 text-sm font-bold text-slate-400">
+            IoT-powered water turbidity monitoring system
           </p>
         </div>
 
         <form className="space-y-3" onSubmit={handleSubmit}>
           <label className="block">
-            <span className="text-sm font-bold text-[#C8D9E6]">
+            <span className="text-sm font-bold text-slate-300">
               Email Address
             </span>
-            <span className="mt-2 flex h-13 items-center gap-3 rounded-[14px] border-2 border-[#6F88B7] bg-[#314F82] px-4 text-[#9FBDD3] focus-within:border-[#9FBDD3] focus-within:ring-4 focus-within:ring-[#9FBDD3]/20">
+            <span className="mt-2 flex h-13 items-center gap-3 rounded-2xl border border-white/10 bg-[#0B1128] px-4 text-sky-300 focus-within:border-sky-300/60 focus-within:ring-4 focus-within:ring-sky-400/10">
               <MailIcon />
               <input
-                className="min-w-0 flex-1 bg-transparent text-base font-medium text-white outline-none placeholder:text-[#9FBDD3]"
+                className="min-w-0 flex-1 bg-transparent text-base font-medium text-white outline-none placeholder:text-slate-500"
                 placeholder="you@example.com"
                 type="email"
                 value={email}
@@ -141,11 +141,11 @@ export function Login({ onLogin }: LoginProps) {
           </label>
 
           <label className="block">
-            <span className="text-sm font-bold text-[#C8D9E6]">Password</span>
-            <span className="mt-2 flex h-13 items-center gap-3 rounded-[14px] border-2 border-[#6F88B7] bg-[#314F82] px-4 text-[#9FBDD3] focus-within:border-[#9FBDD3] focus-within:ring-4 focus-within:ring-[#9FBDD3]/20">
+            <span className="text-sm font-bold text-slate-300">Password</span>
+            <span className="mt-2 flex h-13 items-center gap-3 rounded-2xl border border-white/10 bg-[#0B1128] px-4 text-sky-300 focus-within:border-sky-300/60 focus-within:ring-4 focus-within:ring-sky-400/10">
               <LockIcon />
               <input
-                className="min-w-0 flex-1 bg-transparent text-base font-medium text-white outline-none placeholder:text-[#9FBDD3]"
+                className="min-w-0 flex-1 bg-transparent text-base font-medium text-white outline-none placeholder:text-slate-500"
                 placeholder="********"
                 type={showPassword ? "text" : "password"}
                 value={password}
@@ -154,7 +154,7 @@ export function Login({ onLogin }: LoginProps) {
               />
               <button
                 aria-label={showPassword ? "Hide password" : "Show password"}
-                className="rounded p-1 text-[#9FBDD3] transition hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9FBDD3]"
+                className="rounded p-1 text-sky-300 transition hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-300"
                 type="button"
                 onClick={() => setShowPassword((isVisible) => !isVisible)}
               >
@@ -165,13 +165,13 @@ export function Login({ onLogin }: LoginProps) {
 
           {isSignUp && (
             <label className="block">
-              <span className="text-sm font-bold text-[#C8D9E6]">
+              <span className="text-sm font-bold text-slate-300">
                 Confirm Password
               </span>
-              <span className="mt-2 flex h-13 items-center gap-3 rounded-[14px] border-2 border-[#6F88B7] bg-[#314F82] px-4 text-[#9FBDD3] focus-within:border-[#9FBDD3] focus-within:ring-4 focus-within:ring-[#9FBDD3]/20">
+              <span className="mt-2 flex h-13 items-center gap-3 rounded-2xl border border-white/10 bg-[#0B1128] px-4 text-sky-300 focus-within:border-sky-300/60 focus-within:ring-4 focus-within:ring-sky-400/10">
                 <LockIcon />
                 <input
-                  className="min-w-0 flex-1 bg-transparent text-base font-medium text-white outline-none placeholder:text-[#9FBDD3]"
+                  className="min-w-0 flex-1 bg-transparent text-base font-medium text-white outline-none placeholder:text-slate-500"
                   placeholder="********"
                   type={showConfirmPassword ? "text" : "password"}
                   value={confirmPassword}
@@ -184,7 +184,7 @@ export function Login({ onLogin }: LoginProps) {
                       ? "Hide confirm password"
                       : "Show confirm password"
                   }
-                  className="rounded p-1 text-[#9FBDD3] transition hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9FBDD3]"
+                  className="rounded p-1 text-sky-300 transition hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-300"
                   type="button"
                   onClick={() =>
                     setShowConfirmPassword((isVisible) => !isVisible)
@@ -197,9 +197,9 @@ export function Login({ onLogin }: LoginProps) {
           )}
 
           <div className="flex items-center justify-between gap-4 py-1">
-            <label className="flex items-center gap-2 text-sm font-bold text-[#C8D9E6]">
+            <label className="flex items-center gap-2 text-sm font-bold text-slate-300">
               <input
-                className="h-4 w-4 accent-[#9FBDD3]"
+                className="h-4 w-4 accent-sky-400"
                 type="checkbox"
                 checked={rememberMe}
                 onChange={(event) => setRememberMe(event.target.checked)}
@@ -209,7 +209,7 @@ export function Login({ onLogin }: LoginProps) {
 
             {!isSignUp && (
               <button
-                className="text-sm font-bold text-[#9FBDD3] transition hover:text-white hover:underline"
+                className="text-sm font-bold text-sky-300 transition hover:text-white hover:underline"
                 type="button"
               >
                 Forgot Password?
@@ -218,19 +218,19 @@ export function Login({ onLogin }: LoginProps) {
           </div>
 
           {error && (
-            <p className="rounded-[12px] border border-[#F57578] bg-[#4B426C] px-3 py-2 text-sm font-semibold text-[#F57578]">
+            <p className="rounded-2xl border border-red-400/30 bg-red-500/10 px-3 py-2 text-sm font-semibold text-red-300">
               {error}
             </p>
           )}
 
           {successMessage && (
-            <p className="rounded-[12px] border border-[#9FBDD3] bg-[#314F82] px-3 py-2 text-sm font-semibold text-[#C8D9E6]">
+            <p className="rounded-2xl border border-sky-300/30 bg-sky-500/10 px-3 py-2 text-sm font-semibold text-sky-200">
               {successMessage}
             </p>
           )}
 
           <button
-            className="mt-1 h-13 w-full rounded-[13px] bg-[#9FBDD3] px-4 text-base font-extrabold text-white shadow-[0_12px_22px_rgba(10,23,54,0.32)] transition hover:bg-[#8BAFC9] active:translate-y-px active:shadow-[0_7px_14px_rgba(10,23,54,0.24)] disabled:cursor-not-allowed disabled:opacity-60"
+            className="mt-1 h-13 w-full rounded-2xl bg-gradient-to-r from-[#38BDF8] to-[#7C3AED] px-4 text-base font-extrabold text-white shadow-lg shadow-sky-500/20 transition hover:brightness-110 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
             type="submit"
             disabled={isLoading}
           >
@@ -244,10 +244,10 @@ export function Login({ onLogin }: LoginProps) {
           </button>
         </form>
 
-        <p className="mt-5 text-center text-sm font-medium text-[#9FBDD3]">
+        <p className="mt-5 text-center text-sm font-medium text-slate-400">
           {isSignUp ? "Already have an account?" : "Don't have an account?"}{" "}
           <button
-            className="font-extrabold text-white underline-offset-4 transition hover:text-[#F57578] hover:underline focus-visible:rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[#9FBDD3] active:underline"
+            className="font-extrabold text-sky-300 underline-offset-4 transition hover:text-white hover:underline focus-visible:rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-sky-300 active:underline"
             type="button"
             onClick={() => switchAuthMode(isSignUp ? "signIn" : "signUp")}
           >
