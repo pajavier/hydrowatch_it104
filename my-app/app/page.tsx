@@ -6,6 +6,7 @@ import { Logs } from "./components/Logs";
 import { Login } from "./components/Login";
 import { Settings } from "./components/Settings";
 import { getSupabaseClient } from "@/utils/supabase/client";
+import { useHydrowatchSystem } from "@/hooks/useHydrowatchSystem";
 
 type Screen = "dashboard" | "settings" | "logs";
 
@@ -13,6 +14,7 @@ export default function App() {
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [currentScreen, setCurrentScreen] = useState<Screen>("dashboard");
   const [isCheckingSession, setIsCheckingSession] = useState(true);
+  const system = useHydrowatchSystem();
 
   useEffect(() => {
     const checkExistingSession = async () => {
@@ -76,15 +78,31 @@ export default function App() {
       {currentScreen === "dashboard" && (
         <Dashboard
           accessToken={accessToken}
+          alerts={system.alerts}
+          healthScore={system.healthScore}
+          isLive={system.isLive}
           onNavigate={handleNavigate}
           onLogout={handleLogout}
+          readings={system.readings}
+          uptimeHours={system.uptimeHours}
+          waterQualityScore={system.waterQualityScore}
         />
       )}
       {currentScreen === "settings" && (
-        <Settings accessToken={accessToken} onNavigate={handleNavigate} />
+        <Settings
+          accessToken={accessToken}
+          onNavigate={handleNavigate}
+          onSave={system.setSettings}
+          settings={system.settings}
+        />
       )}
       {currentScreen === "logs" && (
-        <Logs accessToken={accessToken} onNavigate={handleNavigate} />
+        <Logs
+          accessToken={accessToken}
+          logs={system.logs}
+          onNavigate={handleNavigate}
+          readings={system.readings}
+        />
       )}
     </>
   );
