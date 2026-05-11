@@ -1,9 +1,9 @@
 export type TurbidityStatus = "Clear" | "Cloudy" | "Very Cloudy";
 
 export type PredictionLabel =
-  | "Predicted Critical Condition"
+  | "Critical Condition Expected"
   | "Stable Trend"
-  | "Rapid Increase Detected";
+  | "Rising Turbidity";
 
 export type AlertSeverity = "Critical" | "Warning" | "Informational";
 

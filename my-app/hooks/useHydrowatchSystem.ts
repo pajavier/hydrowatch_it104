@@ -13,7 +13,7 @@ import { classifyTurbidity, predictTurbidity } from "@/utils/hydrowatch-analytic
 const defaultSettings: EngineSettings = {
   thresholds: { clearMax: 49, cloudyMax: 75, criticalMin: 76 },
   alertSensitivity: 1,
-  refreshIntervalMs: 4000,
+  refreshIntervalMs: 2500,
   predictionAggressiveness: 1,
 };
 
@@ -52,15 +52,15 @@ export function useHydrowatchSystem() {
         {
           id: crypto.randomUUID(),
           severity: "Informational",
-          message: `Reading ${enriched.turbidity} NTU | ${enriched.flowRate} L/min`,
+          message: `ESP32 playback packet: ${enriched.turbidity} NTU | level ${enriched.waterLevel}% | flow ${enriched.flowRate} L/min`,
           timestamp: enriched.createdAt,
           category: "reading",
         },
         {
           id: crypto.randomUUID(),
           severity:
-            prediction.label === "Predicted Critical Condition" ? "Warning" : "Informational",
-          message: `${prediction.label} (${prediction.confidence}% confidence)`,
+            prediction.label === "Critical Condition Expected" ? "Warning" : "Informational",
+          message: `${prediction.label} (${prediction.confidence}% confidence, projected ${prediction.projectedNTU} NTU)`,
           timestamp: enriched.createdAt,
           category: "prediction",
         },

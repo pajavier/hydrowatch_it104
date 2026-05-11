@@ -1,10 +1,20 @@
 import { getDataSupabaseClient } from "@/lib/supabase/browser";
 import { PredictionLabel, SystemAlert, SystemLog, WaterReading } from "@/types/hydrowatch";
 
-export async function insertWaterReading(reading: WaterReading) {
+type InsertableTable = {
+  insert: (values: unknown) => PromiseLike<unknown>;
+};
+
+function tableFor(name: "water_readings" | "predictions" | "alerts" | "system_logs") {
   const client = getDataSupabaseClient();
-  if (!client) return;
-  await client.from("water_readings").insert({
+  if (!client) return null;
+  return client.from(name) as unknown as InsertableTable;
+}
+
+export async function insertWaterReading(reading: WaterReading) {
+  const table = tableFor("water_readings");
+  if (!table) return;
+  await table.insert({
     id: reading.id,
     turbidity: reading.turbidity,
     water_level: reading.waterLevel,
@@ -23,9 +33,9 @@ export async function insertPrediction(prediction: {
   confidence: number;
   projectedNTU: number;
 }) {
-  const client = getDataSupabaseClient();
-  if (!client) return;
-  await client.from("predictions").insert({
+  const table = tableFor("predictions");
+  if (!table) return;
+  await table.insert({
     reading_id: prediction.readingId,
     label: prediction.label,
     confidence: prediction.confidence,
@@ -34,9 +44,9 @@ export async function insertPrediction(prediction: {
 }
 
 export async function insertAlerts(alerts: SystemAlert[]) {
-  const client = getDataSupabaseClient();
-  if (!client || alerts.length === 0) return;
-  await client.from("alerts").insert(
+  const table = tableFor("alerts");
+  if (!table || alerts.length === 0) return;
+  await table.insert(
     alerts.map((alert) => ({
       id: alert.id,
       severity: alert.severity,
@@ -49,9 +59,9 @@ export async function insertAlerts(alerts: SystemAlert[]) {
 }
 
 export async function insertLogs(logs: SystemLog[]) {
-  const client = getDataSupabaseClient();
-  if (!client || logs.length === 0) return;
-  await client.from("system_logs").insert(
+  const table = tableFor("system_logs");
+  if (!table || logs.length === 0) return;
+  await table.insert(
     logs.map((log) => ({
       id: log.id,
       severity: log.severity,

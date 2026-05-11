@@ -51,7 +51,7 @@ export function predictTurbidity(
 
   if (projectedNTU >= criticalMin) {
     return {
-      label: "Predicted Critical Condition",
+      label: "Critical Condition Expected",
       confidence: Math.round(confidence),
       projectedNTU: Math.round(projectedNTU),
       slope: Number(weightedSlope.toFixed(2)),
@@ -60,7 +60,7 @@ export function predictTurbidity(
 
   if (weightedSlope >= 3) {
     return {
-      label: "Rapid Increase Detected",
+      label: "Rising Turbidity",
       confidence: Math.round(confidence),
       projectedNTU: Math.round(projectedNTU),
       slope: Number(weightedSlope.toFixed(2)),

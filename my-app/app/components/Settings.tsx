@@ -16,15 +16,15 @@ export function Settings({ accessToken, onNavigate, settings, onSave }: Settings
       <div className="grid gap-4 lg:grid-cols-2">
         <section className="rounded-2xl border border-white/10 bg-[#111A38] p-4">
           <h2 className="mb-3 text-xl font-extrabold">Thresholds</h2>
-          <Number label="Clear max" value={settings.thresholds.clearMax} onChange={(v) => onSave({ ...settings, thresholds: { ...settings.thresholds, clearMax: v } })} />
-          <Number label="Cloudy max" value={settings.thresholds.cloudyMax} onChange={(v) => onSave({ ...settings, thresholds: { ...settings.thresholds, cloudyMax: v } })} />
-          <Number label="Critical min" value={settings.thresholds.criticalMin} onChange={(v) => onSave({ ...settings, thresholds: { ...settings.thresholds, criticalMin: v } })} />
+          <NumericInput label="Clear max" value={settings.thresholds.clearMax} onChange={(v) => onSave({ ...settings, thresholds: { ...settings.thresholds, clearMax: v } })} />
+          <NumericInput label="Cloudy max" value={settings.thresholds.cloudyMax} onChange={(v) => onSave({ ...settings, thresholds: { ...settings.thresholds, cloudyMax: v } })} />
+          <NumericInput label="Critical min" value={settings.thresholds.criticalMin} onChange={(v) => onSave({ ...settings, thresholds: { ...settings.thresholds, criticalMin: v } })} />
         </section>
         <section className="rounded-2xl border border-white/10 bg-[#111A38] p-4">
           <h2 className="mb-3 text-xl font-extrabold">Engine</h2>
-          <Number label="Alert sensitivity" value={settings.alertSensitivity} step={0.1} onChange={(v) => onSave({ ...settings, alertSensitivity: v })} />
-          <Number label="Auto-refresh ms" value={settings.refreshIntervalMs} step={500} onChange={(v) => onSave({ ...settings, refreshIntervalMs: v })} />
-          <Number label="Prediction aggressiveness" value={settings.predictionAggressiveness} step={0.1} onChange={(v) => onSave({ ...settings, predictionAggressiveness: v })} />
+          <NumericInput label="Alert sensitivity" value={settings.alertSensitivity} step={0.1} onChange={(v) => onSave({ ...settings, alertSensitivity: v })} />
+          <NumericInput label="Auto-refresh ms" value={settings.refreshIntervalMs} step={500} onChange={(v) => onSave({ ...settings, refreshIntervalMs: v })} />
+          <NumericInput label="Prediction aggressiveness" value={settings.predictionAggressiveness} step={0.1} onChange={(v) => onSave({ ...settings, predictionAggressiveness: v })} />
           <p className="mt-4 text-xs text-slate-400">Session token: {accessToken.slice(0, 10)}...</p>
         </section>
       </div>
@@ -32,7 +32,7 @@ export function Settings({ accessToken, onNavigate, settings, onSave }: Settings
   );
 }
 
-function Number({
+function NumericInput({
   label,
   value,
   onChange,
