@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { evaluateAlerts } from "@/services/alert-engine";
+import { loadWaterReadingsCsv } from "@/services/csv-loader";
 import { SensorSimulator } from "@/services/sensor-simulator";
 import {
+  fetchWaterReadingsDataset,
+  importCsvReadingsToSupabase,
   insertAlerts,
   insertLogs,
   insertPrediction,
@@ -25,6 +28,7 @@ export function useHydrowatchSystem() {
   const [alerts, setAlerts] = useState<SystemAlert[]>([]);
   const [logs, setLogs] = useState<SystemLog[]>([]);
   const [isLive, setIsLive] = useState(true);
+  const [isDatasetReady, setIsDatasetReady] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const readingsRef = useRef<WaterReading[]>([]);
 
@@ -33,8 +37,75 @@ export function useHydrowatchSystem() {
   }, [readings]);
 
   useEffect(() => {
+    let isMounted = true;
+
+    async function prepareDataset() {
+      try {
+        const csvDataset = await loadWaterReadingsCsv();
+        if (!isMounted) return;
+
+        let playbackDataset = csvDataset;
+        let importMessage = "Supabase is not configured; using CSV playback locally.";
+
+        try {
+          const importResult = await importCsvReadingsToSupabase(csvDataset);
+          const supabaseDataset = await fetchWaterReadingsDataset();
+
+          if (supabaseDataset.length > 0) {
+            playbackDataset = supabaseDataset;
+            importMessage = importResult.skipped
+              ? `Loaded ${supabaseDataset.length} readings from Supabase.`
+              : `Imported ${importResult.inserted} CSV readings into Supabase and loaded them for playback.`;
+          }
+        } catch (databaseError) {
+          importMessage = `Supabase dataset sync failed; using CSV playback locally. ${
+            databaseError instanceof Error ? databaseError.message : "Unknown database error"
+          }`;
+        }
+
+        simulator.setDataset(playbackDataset);
+        setIsDatasetReady(playbackDataset.length > 0);
+        setLogs((prev) => [
+          {
+            id: crypto.randomUUID(),
+            severity: playbackDataset.length > 0 ? "Informational" : "Warning",
+            message:
+              playbackDataset.length > 0
+                ? importMessage
+                : "CSV dataset loaded but no valid readings were found.",
+            timestamp: new Date().toISOString(),
+            category: "system",
+          },
+          ...prev,
+        ]);
+      } catch (error) {
+        if (!isMounted) return;
+        setIsDatasetReady(false);
+        setLogs((prev) => [
+          {
+            id: crypto.randomUUID(),
+            severity: "Critical",
+            message: `CSV dataset failed to load: ${error instanceof Error ? error.message : "Unknown error"}`,
+            timestamp: new Date().toISOString(),
+            category: "system",
+          },
+          ...prev,
+        ]);
+      }
+    }
+
+    prepareDataset();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
     const tick = async () => {
       const currentReadings = readingsRef.current;
+      if (!simulator.hasDataset()) return;
+
       const reading = simulator.next(currentReadings, settings);
       const prediction = predictTurbidity(
         [...currentReadings, reading],
@@ -52,7 +123,7 @@ export function useHydrowatchSystem() {
         {
           id: crypto.randomUUID(),
           severity: "Informational",
-          message: `ESP32 playback packet: ${enriched.turbidity} NTU | level ${enriched.waterLevel}% | flow ${enriched.flowRate} L/min`,
+          message: `ESP32 CSV packet: ${enriched.turbidity} NTU | level ${enriched.waterLevel}% | flow ${enriched.flowRate} L/min`,
           timestamp: enriched.createdAt,
           category: "reading",
         },
@@ -67,7 +138,7 @@ export function useHydrowatchSystem() {
         ...generatedAlerts.map((alert) => ({
           id: crypto.randomUUID(),
           severity: alert.severity,
-          message: alert.message,
+          message: `${alert.title}: ${alert.message} Recommendation: ${alert.action}`,
           timestamp: alert.timestamp,
           category: "alert" as const,
         })),
@@ -90,13 +161,13 @@ export function useHydrowatchSystem() {
       ]);
     };
 
-    if (!isLive) return;
+    if (!isLive || !isDatasetReady) return;
     tick();
     timerRef.current = setInterval(tick, settings.refreshIntervalMs);
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [isLive, settings]);
+  }, [isDatasetReady, isLive, settings]);
 
   const latest = readings.at(-1);
   const healthScore = useMemo(() => {
@@ -123,6 +194,7 @@ export function useHydrowatchSystem() {
     settings,
     setIsLive,
     setSettings,
+    isDatasetReady,
     uptimeHours,
     waterQualityScore,
   };

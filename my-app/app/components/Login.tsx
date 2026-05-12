@@ -95,7 +95,7 @@ export function Login({ onLogin }: LoginProps) {
   const isSignUp = authMode === "signUp";
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top_left,rgba(56,189,248,0.18),transparent_30%),radial-gradient(circle_at_bottom_right,rgba(124,58,237,0.18),transparent_34%),#070B1A] px-4 py-10 text-white">
+    <main className="flex min-h-screen items-center justify-center bg-[#070B1A] px-4 py-10 text-white">
       <section className="w-full max-w-[500px] rounded-[28px] border border-white/10 bg-[#111A38]/95 px-8 py-6 shadow-2xl shadow-black/30 backdrop-blur sm:px-12">
         <div className="mb-6 text-center">
           <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-[#38BDF8] to-[#7C3AED] shadow-lg shadow-sky-500/20">

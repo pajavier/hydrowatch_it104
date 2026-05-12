@@ -5,17 +5,27 @@ type HydrowatchDatabase = {
   public: {
     Tables: {
       water_readings: {
-        Row: Record<string, unknown>;
-        Insert: {
+        Row: {
           id: string;
-          turbidity: number;
-          water_level: number;
-          flow_rate: number;
-          status: TurbidityStatus;
-          prediction: PredictionLabel;
-          prediction_confidence: number;
-          source: ReadingSource;
+          turbidity: number | string;
+          water_level: number | string | null;
+          flow_rate: number | string | null;
+          status: TurbidityStatus | string | null;
+          prediction?: PredictionLabel | string | null;
+          prediction_confidence?: number | string | null;
+          source?: ReadingSource | string | null;
           created_at: string;
+        };
+        Insert: {
+          id?: string;
+          turbidity: number;
+          water_level?: number | null;
+          flow_rate?: number | null;
+          status?: TurbidityStatus | null;
+          prediction?: PredictionLabel | null;
+          prediction_confidence?: number | null;
+          source?: ReadingSource | null;
+          created_at?: string;
         };
         Update: Partial<HydrowatchDatabase["public"]["Tables"]["water_readings"]["Insert"]>;
       };

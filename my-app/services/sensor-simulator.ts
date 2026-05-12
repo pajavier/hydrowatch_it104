@@ -1,13 +1,27 @@
 import { EngineSettings, WaterReading } from "@/types/hydrowatch";
 import { classifyTurbidity, predictTurbidity } from "@/utils/hydrowatch-analytics";
-import { hydrowatchPlaybackDataset } from "./simulation-dataset";
+import { DatasetReading } from "./simulation-dataset";
 
 export class SensorSimulator {
   private cursor = 0;
+  private dataset: DatasetReading[] = [];
+
+  setDataset(dataset: DatasetReading[]) {
+    this.dataset = dataset;
+    this.cursor = 0;
+  }
+
+  hasDataset() {
+    return this.dataset.length > 0;
+  }
 
   next(history: WaterReading[], settings: EngineSettings): WaterReading {
-    const sample = hydrowatchPlaybackDataset[this.cursor];
-    this.cursor = (this.cursor + 1) % hydrowatchPlaybackDataset.length;
+    if (!this.hasDataset()) {
+      throw new Error("Sensor simulator has no CSV dataset loaded.");
+    }
+
+    const sample = this.dataset[this.cursor];
+    this.cursor = (this.cursor + 1) % this.dataset.length;
 
     const draft = [...history.slice(-50)].concat({
       id: crypto.randomUUID(),
@@ -17,7 +31,7 @@ export class SensorSimulator {
       status: "Clear",
       prediction: "Stable Trend",
       predictionConfidence: 60,
-      source: "simulated",
+      source: "esp32",
       createdAt: new Date().toISOString(),
     });
     const prediction = predictTurbidity(

@@ -31,6 +31,7 @@ export type PredictionResult = {
 export type SystemAlert = {
   id: string;
   severity: AlertSeverity;
+  title: string;
   type:
     | "high_turbidity"
     | "rapid_increase"
@@ -39,6 +40,7 @@ export type SystemAlert = {
     | "water_level_abnormal";
   message: string;
   action: string;
+  ntuValue: number;
   timestamp: string;
 };
 

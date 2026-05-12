@@ -90,8 +90,9 @@ export function Dashboard({
                   {alerts.length === 0 && <p className="text-sm text-slate-400">No active alerts.</p>}
                   {alerts.slice(0, 5).map((alert) => (
                     <div className="mb-2 rounded-xl bg-white/5 p-3 transition-colors duration-500" key={alert.id}>
-                      <p className="text-sm font-bold">{alert.severity} - {alert.message}</p>
-                      <p className="text-xs text-slate-400">{alert.action}</p>
+                      <p className="text-sm font-bold">{alert.severity} - {alert.title}</p>
+                      <p className="text-xs text-slate-300">{alert.message}</p>
+                      <p className="text-xs text-slate-400">NTU {alert.ntuValue} - {alert.action}</p>
                       <p className="mt-1 text-[11px] text-slate-500">{new Date(alert.timestamp).toLocaleTimeString()}</p>
                     </div>
                   ))}
@@ -100,7 +101,7 @@ export function Dashboard({
                   <Info label="Health Score" value={`${healthScore}%`} />
                   <Info label="Water Quality" value={`${waterQualityScore}%`} />
                   <Info label="Uptime" value={`${uptimeHours} hrs`} />
-                  <Info label="Latest Packet" value={`${latest.source.toUpperCase()} ${latest.turbidity} NTU`} />
+                  <Info label="Latest Packet" value={`${latest.source.toUpperCase()} CSV ${latest.turbidity} NTU`} />
                   <Info label="Session" value={`${accessToken.slice(0, 10)}...`} />
                 </Panel>
               </div>
@@ -136,12 +137,32 @@ function Trend({ readings, tone }: { readings: WaterReading[]; tone: "normal" | 
     const x = p + (i / (readings.length - 1)) * (w - p * 2);
     const y = h - p - (Math.min(r.turbidity, max) / max) * (h - p * 2);
     return `${x},${y}`;
-  }).join(" ");
+  });
   return (
     <svg className="h-full w-full" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
-      <polyline fill="none" stroke={stroke} strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" points={points} className="transition-all duration-700 ease-out" />
+      <polyline fill="none" stroke={stroke} strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" points={points.join(" ")} className="transition-all duration-700 ease-out" />
+      {readings.map((reading, index) => {
+        const [cx, cy] = points[index].split(",").map(Number);
+        return (
+          <circle
+            className="transition-all duration-700 ease-out"
+            cx={cx}
+            cy={cy}
+            fill={getPointColor(reading.status)}
+            key={reading.id}
+            r="5"
+            stroke="#0B1128"
+            strokeWidth="2"
+          />
+        );
+      })}
     </svg>
   );
+}
+function getPointColor(status: WaterReading["status"]) {
+  if (status === "Very Cloudy") return "#F87171";
+  if (status === "Cloudy") return "#FACC15";
+  return "#34D399";
 }
 function getStatusBadge(tone: "normal" | "warning" | "critical") {
   if (tone === "critical") {
