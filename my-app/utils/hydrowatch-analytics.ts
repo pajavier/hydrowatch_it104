@@ -2,20 +2,13 @@ import {
   PredictionResult,
   TurbidityStatus,
   WaterReading,
-  ThresholdSettings,
 } from "@/types/hydrowatch";
 
-export function classifyTurbidity(
-  value: number,
-  thresholds: ThresholdSettings,
-): TurbidityStatus {
-  if (value >= thresholds.criticalMin) {
-    return "Very Cloudy";
-  }
-  if (value > thresholds.clearMax) {
-    return "Cloudy";
-  }
-  return "Clear";
+export function classifyTurbidity(value: number): TurbidityStatus {
+  if (value <= 5) return "Safe";
+  if (value <= 20) return "Slightly Cloudy";
+  if (value <= 50) return "Cloudy";
+  return "Very Cloudy";
 }
 
 export function predictTurbidity(

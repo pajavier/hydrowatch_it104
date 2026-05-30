@@ -3,20 +3,15 @@ create extension if not exists "pgcrypto";
 create table if not exists water_readings (
   id uuid primary key default gen_random_uuid(),
   turbidity numeric not null,
-  water_level numeric,
-  flow_rate numeric,
-  status text,
-  prediction text,
-  prediction_confidence numeric,
-  source text not null default 'simulated',
   created_at timestamptz not null default now()
 );
 
-alter table water_readings alter column water_level drop not null;
-alter table water_readings alter column flow_rate drop not null;
-alter table water_readings alter column status drop not null;
-alter table water_readings alter column prediction drop not null;
-alter table water_readings alter column prediction_confidence drop not null;
+alter table water_readings drop column if exists water_level;
+alter table water_readings drop column if exists flow_rate;
+alter table water_readings drop column if exists status;
+alter table water_readings drop column if exists prediction;
+alter table water_readings drop column if exists prediction_confidence;
+alter table water_readings drop column if exists source;
 
 create table if not exists alerts (
   id uuid primary key default gen_random_uuid(),

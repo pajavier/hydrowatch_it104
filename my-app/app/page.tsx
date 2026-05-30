@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { AppLayout } from "./components/AppLayout";
 import { Dashboard } from "./components/Dashboard";
 import { Logs } from "./components/Logs";
 import { Login } from "./components/Login";
@@ -74,15 +75,15 @@ export default function App() {
   }
 
   return (
-    <>
+    <AppLayout activeScreen={currentScreen} onLogout={handleLogout} onNavigate={handleNavigate}>
       {currentScreen === "dashboard" && (
         <Dashboard
           accessToken={accessToken}
           alerts={system.alerts}
           healthScore={system.healthScore}
+          isLoadingReadings={system.isLoadingReadings}
           isLive={system.isLive}
-          onNavigate={handleNavigate}
-          onLogout={handleLogout}
+          readingsError={system.readingsError}
           readings={system.readings}
           uptimeHours={system.uptimeHours}
           waterQualityScore={system.waterQualityScore}
@@ -91,7 +92,6 @@ export default function App() {
       {currentScreen === "settings" && (
         <Settings
           accessToken={accessToken}
-          onNavigate={handleNavigate}
           onSave={system.setSettings}
           settings={system.settings}
         />
@@ -100,10 +100,9 @@ export default function App() {
         <Logs
           accessToken={accessToken}
           logs={system.logs}
-          onNavigate={handleNavigate}
           readings={system.readings}
         />
       )}
-    </>
+    </AppLayout>
   );
 }

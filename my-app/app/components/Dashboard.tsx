@@ -3,14 +3,13 @@
 import { ReactNode } from "react";
 import { SystemAlert, WaterReading } from "@/types/hydrowatch";
 
-type Screen = "dashboard" | "settings" | "logs";
 type Props = {
   accessToken: string;
-  onNavigate: (screen: Screen) => void;
-  onLogout: () => void;
   readings: WaterReading[];
   alerts: SystemAlert[];
   isLive: boolean;
+  isLoadingReadings: boolean;
+  readingsError: string | null;
   healthScore: number;
   waterQualityScore: number;
   uptimeHours: string;
@@ -18,46 +17,79 @@ type Props = {
 
 export function Dashboard({
   accessToken,
-  onNavigate,
-  onLogout,
   readings,
   alerts,
   isLive,
+  isLoadingReadings,
+  readingsError,
   healthScore,
   waterQualityScore,
   uptimeHours,
 }: Props) {
   const latest = readings.at(-1);
   const trend = readings.length > 1 ? latest!.turbidity - readings[readings.length - 2].turbidity : 0;
-  const statusTone = latest?.status === "Very Cloudy" ? "critical" : latest?.status === "Cloudy" ? "warning" : "normal";
+  const statusTone = latest?.status === "Very Cloudy" ? "critical" : latest?.status === "Cloudy" || latest?.status === "Slightly Cloudy" ? "warning" : "normal";
   const statusBadge = getStatusBadge(statusTone);
+  const latestEvents = readings.slice(-5).reverse();
 
   return (
-    <main className="min-h-screen bg-[#070B1A] text-white lg:flex">
-      <aside className="border-r border-white/10 bg-[#0D1430]/95 p-5 lg:w-64">
-        <h1 className="text-xl font-extrabold">Hydrowatch</h1>
-        <p className="text-xs text-slate-400">Station Control</p>
-        <div className="mt-6 space-y-2">
-          <NavButton active label="Dashboard" />
-          <NavButton label="Logs" onClick={() => onNavigate("logs")} />
-          <NavButton label="Settings" onClick={() => onNavigate("settings")} />
-        </div>
-        <button className="mt-8 w-full rounded-xl border border-red-400/35 px-3 py-2 text-red-300" onClick={onLogout}>
-          Logout
-        </button>
-      </aside>
-      <section className="flex-1 p-5">
+    <>
         <div className="mb-5 flex items-center justify-between">
           <div>
             <h2 className="text-3xl font-extrabold">Dashboard</h2>
-            <p className="text-sm text-slate-400">Real-time analytics and simulated ESP32 telemetry</p>
+            <p className="text-sm text-slate-400">Real-time analytics from ESP32 telemetry</p>
           </div>
           <span className={`rounded-full px-3 py-1 text-xs font-bold ${isLive ? "bg-emerald-500/20 text-emerald-300" : "bg-slate-700 text-slate-300"}`}>
             {isLive ? "LIVE" : "PAUSED"}
           </span>
         </div>
 
-        {!latest ? <div className="h-40 animate-pulse rounded-3xl bg-white/10" /> : (
+        {isLoadingReadings ? <div className="h-40 animate-pulse rounded-3xl bg-white/10" /> : !latest ? (
+          <>
+            <section className="rounded-3xl border border-white/10 bg-[#111A38] p-5 transition-colors duration-700">
+              <p className="text-sm uppercase tracking-[0.2em] text-sky-300">Water Monitoring Station</p>
+              <div className="mt-2 flex flex-wrap items-center gap-3">
+                <h3 className="text-4xl font-extrabold">Waiting for readings</h3>
+                <span className="rounded-full bg-slate-700 px-3 py-1 text-xs font-bold text-slate-300">
+                  0 NTU
+                </span>
+              </div>
+              <p className="mt-2 text-sm text-slate-300">
+                {readingsError
+                  ? `Unable to load Supabase readings: ${readingsError}`
+                  : "No ESP32 sensor readings are available yet. New Supabase inserts will appear here automatically."}
+              </p>
+            </section>
+
+            <section className="mt-4 grid gap-4 md:grid-cols-3">
+              <Metric label="Current NTU Reading" value="-- NTU" sub="Waiting for ESP32" />
+              <Metric label="Water Condition Status" value="Pending" sub="No turbidity sample" />
+              <Metric label="Prediction Status" value="Pending" sub="Trend unavailable" />
+            </section>
+
+            <section className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+              <div className="rounded-3xl border border-white/10 bg-[#111A38] p-5">
+                <h3 className="font-extrabold">Turbidity Trend</h3>
+                <div className="mt-4 flex h-72 items-center justify-center rounded-2xl bg-[#0B1128] p-3 text-sm text-slate-400">
+                  No turbidity readings yet.
+                </div>
+              </div>
+              <div className="space-y-4">
+                <Panel title="Alerts">
+                  <p className="text-sm text-slate-400">No active alerts.</p>
+                </Panel>
+                <Panel title="Quick Info">
+                  <Info label="Health Score" value={`${healthScore}%`} />
+                  <Info label="Water Quality" value={`${waterQualityScore}%`} />
+                  <Info label="Uptime" value={`${uptimeHours} hrs`} />
+                  <Info label="Alert Summary" value="0 active" />
+                  <Info label="Latest Reading" value="Waiting" />
+                  <Info label="Session" value={`${accessToken.slice(0, 10)}...`} />
+                </Panel>
+              </div>
+            </section>
+          </>
+        ) : (
           <>
             <section className={`rounded-3xl border bg-[#111A38] p-5 transition-colors duration-700 ${statusBadge.heroBorder}`}>
               <p className="text-sm uppercase tracking-[0.2em] text-sky-300">Water Monitoring Station</p>
@@ -73,9 +105,9 @@ export function Dashboard({
             </section>
 
             <section className="mt-4 grid gap-4 md:grid-cols-3">
-              <Metric label="Turbidity" value={`${latest.turbidity} NTU`} tone={statusTone} sub={`Trend ${trend >= 0 ? "+" : ""}${trend.toFixed(1)} NTU`} />
-              <Metric label="Water Level" value={`${latest.waterLevel}%`} sub="Tank level" />
-              <Metric label="Flow Rate" value={`${latest.flowRate} L/min`} tone={latest.flowRate < 10 || latest.flowRate > 26 ? "warning" : "normal"} sub="Pipeline flow" />
+              <Metric label="Current NTU Reading" value={`${latest.turbidity} NTU`} tone={statusTone} sub={`Trend ${trend >= 0 ? "+" : ""}${trend.toFixed(1)} NTU`} />
+              <Metric label="Water Condition Status" value={latest.status} tone={statusTone} sub="Turbidity classification" />
+              <Metric label="Prediction Status" value={latest.prediction} tone={latest.prediction === "Critical Condition Expected" ? "critical" : latest.prediction === "Rising Turbidity" ? "warning" : "normal"} sub={`${latest.predictionConfidence}% confidence`} />
             </section>
 
             <section className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
@@ -98,23 +130,28 @@ export function Dashboard({
                   ))}
                 </Panel>
                 <Panel title="Quick Info">
-                  <Info label="Health Score" value={`${healthScore}%`} />
+                  <Info label="Monitoring Health" value={`${healthScore}%`} />
                   <Info label="Water Quality" value={`${waterQualityScore}%`} />
+                  <Info label="Alert Summary" value={`${alerts.length} active`} />
                   <Info label="Uptime" value={`${uptimeHours} hrs`} />
-                  <Info label="Latest Packet" value={`${latest.source.toUpperCase()} CSV ${latest.turbidity} NTU`} />
+                  <Info label="Latest Reading" value={`${latest.turbidity} NTU`} />
                   <Info label="Session" value={`${accessToken.slice(0, 10)}...`} />
+                </Panel>
+                <Panel title="Recent Turbidity Events">
+                  {latestEvents.map((event) => (
+                    <Info
+                      key={event.id}
+                      label={new Date(event.createdAt).toLocaleTimeString()}
+                      value={`${event.turbidity} NTU`}
+                    />
+                  ))}
                 </Panel>
               </div>
             </section>
           </>
         )}
-      </section>
-    </main>
+    </>
   );
-}
-
-function NavButton({ label, onClick, active = false }: { label: string; onClick?: () => void; active?: boolean }) {
-  return <button className={`w-full rounded-xl px-3 py-2 text-left ${active ? "bg-sky-400/15 text-sky-200" : "text-slate-300 hover:bg-white/10"}`} onClick={onClick}>{label}</button>;
 }
 function Metric({ label, value, sub, tone = "normal" }: { label: string; value: string; sub: string; tone?: "normal" | "warning" | "critical" }) {
   const c = tone === "critical" ? "text-red-300" : tone === "warning" ? "text-yellow-300" : "text-sky-200";

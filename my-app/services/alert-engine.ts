@@ -18,7 +18,7 @@ export function evaluateAlerts(
   const latest = [...history.slice(-6), reading];
   const turbidityValues = latest.map((x) => x.turbidity);
 
-  if (reading.turbidity >= settings.thresholds.criticalMin) {
+  if (reading.turbidity >= 51) {
     alerts.push(
       createAlert({
         severity: "Critical",
@@ -48,7 +48,7 @@ export function evaluateAlerts(
     );
   }
 
-  if (reading.turbidity >= settings.thresholds.criticalMin + 30) {
+  if (reading.turbidity >= 81) {
     alerts.push(
       createAlert({
         severity: "Critical",
@@ -61,39 +61,13 @@ export function evaluateAlerts(
     );
   }
 
-  if (reading.flowRate < 10 || reading.flowRate > 26) {
-    alerts.push(
-      createAlert({
-        severity: "Warning",
-        title: "Flow Anomaly",
-        type: "flow_anomaly",
-        message: `Flow anomaly at ${reading.flowRate} L/min.`,
-        action: "Check valve state and pump operation.",
-        ntuValue: reading.turbidity,
-      }),
-    );
-  }
-
-  if (reading.waterLevel < 55 || reading.waterLevel > 82) {
-    alerts.push(
-      createAlert({
-        severity: "Warning",
-        title: "Water Level Abnormal",
-        type: "water_level_abnormal",
-        message: `Water level abnormal at ${reading.waterLevel}%.`,
-        action: "Inspect tank level sensor and inlet feed.",
-        ntuValue: reading.turbidity,
-      }),
-    );
-  }
-
   const score = anomalyScore(turbidityValues);
   if (score > 2.8) {
     alerts.push(
       createAlert({
         severity: "Informational",
         title: "Sensor Stability Check",
-        type: "sensor_disconnect",
+        type: "sensor_stability",
         message: "Sensor instability signature detected.",
         action: "Run self-test and inspect probe cabling.",
         ntuValue: reading.turbidity,

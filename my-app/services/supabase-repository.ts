@@ -1,7 +1,17 @@
 import { getDataSupabaseClient } from "@/lib/supabase/browser";
-import { DatasetReading } from "@/services/simulation-dataset";
 import { PredictionLabel, SystemAlert, SystemLog, WaterReading } from "@/types/hydrowatch";
 import { classifyTurbidity } from "@/utils/hydrowatch-analytics";
+
+export type WaterReadingRow = {
+  id: string;
+  turbidity: number | string;
+  created_at: string;
+};
+
+export type NewWaterReadingInput = {
+  turbidity: number;
+  createdAt?: string;
+};
 
 type InsertableTable = {
   insert: (values: unknown) => PromiseLike<unknown>;
@@ -18,85 +28,52 @@ function numberOrFallback(value: unknown, fallback: number) {
   return Number.isFinite(numeric) ? numeric : fallback;
 }
 
-function toDatasetReading(row: {
-  created_at?: string;
-  turbidity: number | string;
-  water_level?: number | string | null;
-  flow_rate?: number | string | null;
-}): DatasetReading {
+function toWaterReading(row: WaterReadingRow): WaterReading {
   const turbidity = numberOrFallback(row.turbidity, 0);
-  const fallbackWaterLevel = Math.max(45, Math.min(86, Math.round(78 - turbidity * 0.16)));
-  const fallbackFlowRate = Number(Math.max(7, Math.min(27, 22 - turbidity * 0.07)).toFixed(1));
 
   return {
-    createdAt: row.created_at,
+    id: row.id,
     turbidity,
-    waterLevel: numberOrFallback(row.water_level, fallbackWaterLevel),
-    flowRate: numberOrFallback(row.flow_rate, fallbackFlowRate),
+    status: classifyTurbidity(turbidity),
+    prediction: "Stable Trend",
+    predictionConfidence: 62,
+    createdAt: row.created_at,
   };
 }
 
-export async function importCsvReadingsToSupabase(readings: DatasetReading[]) {
+export async function fetchWaterReadings(limit = 150): Promise<WaterReading[]> {
   const client = getDataSupabaseClient();
-  if (!client || readings.length === 0) return { inserted: 0, skipped: true };
-
-  const { count, error: countError } = await client
-    .from("water_readings")
-    .select("*", { count: "exact", head: true });
-
-  if (countError) throw countError;
-  if ((count ?? 0) > 0) return { inserted: 0, skipped: true };
-
-  const now = Date.now();
-  const rows = readings.map((reading, index) => ({
-    turbidity: reading.turbidity,
-    water_level: reading.waterLevel,
-    flow_rate: reading.flowRate,
-    status: classifyTurbidity(reading.turbidity, {
-      clearMax: 49,
-      cloudyMax: 75,
-      criticalMin: 76,
-    }),
-    source: "simulated" as const,
-    created_at:
-      reading.createdAt ??
-      new Date(now + index * 1000).toISOString(),
-  }));
-
-  const { error } = await client.from("water_readings").insert(rows as never[]);
-  if (error) throw error;
-
-  return { inserted: rows.length, skipped: false };
-}
-
-export async function fetchWaterReadingsDataset(): Promise<DatasetReading[]> {
-  const client = getDataSupabaseClient();
-  if (!client) return [];
+  if (!client) {
+    throw new Error("Supabase environment variables are not configured.");
+  }
 
   const { data, error } = await client
     .from("water_readings")
-    .select("*")
+    .select("id,turbidity,created_at")
     .order("created_at", { ascending: true });
 
   if (error) throw error;
 
-  return (data ?? []).map(toDatasetReading);
+  return (data ?? []).slice(-limit).map((row) => toWaterReading(row as WaterReadingRow));
 }
 
-export async function insertWaterReading(reading: WaterReading) {
-  const table = tableFor("water_readings");
-  if (!table) return;
-  await table.insert({
-    id: reading.id,
-    turbidity: reading.turbidity,
-    water_level: reading.waterLevel,
-    flow_rate: reading.flowRate,
-    status: reading.status,
-    prediction: reading.prediction,
-    prediction_confidence: reading.predictionConfidence,
-    source: reading.source,
-    created_at: reading.createdAt,
-  });
+export async function insertEsp32WaterReading(input: NewWaterReadingInput) {
+  const client = getDataSupabaseClient();
+  if (!client) {
+    throw new Error("Supabase environment variables are not configured.");
+  }
+
+  const { data, error } = await client
+    .from("water_readings")
+    .insert({
+      turbidity: input.turbidity,
+      created_at: input.createdAt ?? new Date().toISOString(),
+    } as never)
+    .select("id,turbidity,created_at")
+    .single();
+
+  if (error) throw error;
+  return data ? toWaterReading(data as WaterReadingRow) : null;
 }
 
 export async function insertPrediction(prediction: {
@@ -159,4 +136,10 @@ export function subscribeToWaterReadings(onInsert: (payload: unknown) => void) {
   return () => {
     client.removeChannel(channel);
   };
+}
+
+export function waterReadingFromRealtimePayload(payload: unknown) {
+  const row = (payload as { new?: unknown }).new;
+  if (!row || typeof row !== "object") return null;
+  return toWaterReading(row as WaterReadingRow);
 }

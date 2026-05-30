@@ -4,31 +4,29 @@ import { EngineSettings } from "@/types/hydrowatch";
 
 type SettingsProps = {
   accessToken: string;
-  onNavigate: (screen: "dashboard" | "settings" | "logs") => void;
   settings: EngineSettings;
   onSave: (settings: EngineSettings) => void;
 };
 
-export function Settings({ accessToken, onNavigate, settings, onSave }: SettingsProps) {
+export function Settings({ accessToken, settings, onSave }: SettingsProps) {
   return (
-    <main className="min-h-screen bg-[#070B1A] text-white p-5">
-      <button className="mb-3 rounded-xl border border-white/10 px-3 py-2" onClick={() => onNavigate("dashboard")}>Back to Dashboard</button>
-      <div className="grid gap-4 lg:grid-cols-2">
-        <section className="rounded-2xl border border-white/10 bg-[#111A38] p-4">
-          <h2 className="mb-3 text-xl font-extrabold">Thresholds</h2>
-          <NumericInput label="Clear max" value={settings.thresholds.clearMax} onChange={(v) => onSave({ ...settings, thresholds: { ...settings.thresholds, clearMax: v } })} />
-          <NumericInput label="Cloudy max" value={settings.thresholds.cloudyMax} onChange={(v) => onSave({ ...settings, thresholds: { ...settings.thresholds, cloudyMax: v } })} />
-          <NumericInput label="Critical min" value={settings.thresholds.criticalMin} onChange={(v) => onSave({ ...settings, thresholds: { ...settings.thresholds, criticalMin: v } })} />
-        </section>
-        <section className="rounded-2xl border border-white/10 bg-[#111A38] p-4">
-          <h2 className="mb-3 text-xl font-extrabold">Engine</h2>
-          <NumericInput label="Alert sensitivity" value={settings.alertSensitivity} step={0.1} onChange={(v) => onSave({ ...settings, alertSensitivity: v })} />
-          <NumericInput label="Auto-refresh ms" value={settings.refreshIntervalMs} step={500} onChange={(v) => onSave({ ...settings, refreshIntervalMs: v })} />
-          <NumericInput label="Prediction aggressiveness" value={settings.predictionAggressiveness} step={0.1} onChange={(v) => onSave({ ...settings, predictionAggressiveness: v })} />
-          <p className="mt-4 text-xs text-slate-400">Session token: {accessToken.slice(0, 10)}...</p>
-        </section>
-      </div>
-    </main>
+    <>
+        <div className="grid gap-4 lg:grid-cols-2">
+          <section className="rounded-2xl border border-white/10 bg-[#111A38] p-4">
+            <h2 className="mb-3 text-xl font-extrabold">Thresholds</h2>
+            <NumericInput label="Clear max" value={settings.thresholds.clearMax} onChange={(v) => onSave({ ...settings, thresholds: { ...settings.thresholds, clearMax: v } })} />
+            <NumericInput label="Cloudy max" value={settings.thresholds.cloudyMax} onChange={(v) => onSave({ ...settings, thresholds: { ...settings.thresholds, cloudyMax: v } })} />
+            <NumericInput label="Critical min" value={settings.thresholds.criticalMin} onChange={(v) => onSave({ ...settings, thresholds: { ...settings.thresholds, criticalMin: v } })} />
+          </section>
+          <section className="rounded-2xl border border-white/10 bg-[#111A38] p-4">
+            <h2 className="mb-3 text-xl font-extrabold">Engine</h2>
+            <NumericInput label="Alert sensitivity" value={settings.alertSensitivity} step={0.1} onChange={(v) => onSave({ ...settings, alertSensitivity: v })} />
+            <NumericInput label="Auto-refresh ms" value={settings.refreshIntervalMs} step={500} onChange={(v) => onSave({ ...settings, refreshIntervalMs: v })} />
+            <NumericInput label="Prediction aggressiveness" value={settings.predictionAggressiveness} step={0.1} onChange={(v) => onSave({ ...settings, predictionAggressiveness: v })} />
+            <p className="mt-4 text-xs text-slate-400">Session token: {accessToken.slice(0, 10)}...</p>
+          </section>
+        </div>
+    </>
   );
 }
 

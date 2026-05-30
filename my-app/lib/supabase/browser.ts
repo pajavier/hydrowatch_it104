@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import { AlertSeverity, PredictionLabel, ReadingSource, TurbidityStatus } from "@/types/hydrowatch";
+import { AlertSeverity, PredictionLabel } from "@/types/hydrowatch";
 
 type HydrowatchDatabase = {
   public: {
@@ -8,23 +8,11 @@ type HydrowatchDatabase = {
         Row: {
           id: string;
           turbidity: number | string;
-          water_level: number | string | null;
-          flow_rate: number | string | null;
-          status: TurbidityStatus | string | null;
-          prediction?: PredictionLabel | string | null;
-          prediction_confidence?: number | string | null;
-          source?: ReadingSource | string | null;
           created_at: string;
         };
         Insert: {
           id?: string;
           turbidity: number;
-          water_level?: number | null;
-          flow_rate?: number | null;
-          status?: TurbidityStatus | null;
-          prediction?: PredictionLabel | null;
-          prediction_confidence?: number | null;
-          source?: ReadingSource | null;
           created_at?: string;
         };
         Update: Partial<HydrowatchDatabase["public"]["Tables"]["water_readings"]["Insert"]>;
@@ -44,7 +32,7 @@ type HydrowatchDatabase = {
         Insert: {
           id: string;
           severity: AlertSeverity;
-          type: "high_turbidity" | "rapid_increase" | "sensor_disconnect" | "flow_anomaly" | "water_level_abnormal";
+          type: "high_turbidity" | "rapid_increase" | "sensor_stability";
           message: string;
           action: string;
           created_at: string;

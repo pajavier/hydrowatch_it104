@@ -5,12 +5,11 @@ import { SystemLog, WaterReading } from "@/types/hydrowatch";
 
 type LogsProps = {
   accessToken: string;
-  onNavigate: (screen: "dashboard" | "settings" | "logs") => void;
   readings: WaterReading[];
   logs: SystemLog[];
 };
 
-export function Logs({ accessToken, onNavigate, readings, logs }: LogsProps) {
+export function Logs({ accessToken, readings, logs }: LogsProps) {
   const [search, setSearch] = useState("");
   const [severity, setSeverity] = useState<"all" | "Critical" | "Warning" | "Informational">("all");
   const [date, setDate] = useState("");
@@ -41,34 +40,33 @@ export function Logs({ accessToken, onNavigate, readings, logs }: LogsProps) {
   };
 
   return (
-    <main className="min-h-screen bg-[#070B1A] text-white p-5">
-      <button className="mb-3 rounded-xl border border-white/10 px-3 py-2" onClick={() => onNavigate("dashboard")}>Back to Dashboard</button>
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <input className="rounded-xl bg-[#111A38] px-3 py-2" placeholder="Search logs" value={search} onChange={(e) => setSearch(e.target.value)} />
-        <select className="rounded-xl bg-[#111A38] px-3 py-2" value={severity} onChange={(e) => setSeverity(e.target.value as typeof severity)}>
-          <option value="all">All severities</option><option value="Critical">Critical</option><option value="Warning">Warning</option><option value="Informational">Informational</option>
-        </select>
-        <input className="rounded-xl bg-[#111A38] px-3 py-2" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-        <button className="rounded-xl bg-sky-400 px-3 py-2 font-bold text-slate-900" onClick={exportCsv}>Export CSV</button>
-      </div>
-      <p className="mb-4 text-xs text-slate-400">Session {accessToken.slice(0, 10)}... | Readings {readings.length} | Logs {filtered.length}</p>
-      <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#111A38]">
-        <table className="w-full text-sm">
-          <thead className="bg-white/5">
-            <tr><th className="px-3 py-2 text-left">Time</th><th className="px-3 py-2 text-left">Severity</th><th className="px-3 py-2 text-left">Category</th><th className="px-3 py-2 text-left">Message</th></tr>
-          </thead>
-          <tbody>
-            {filtered.map((log) => (
-              <tr className="border-t border-white/10" key={log.id}>
-                <td className="px-3 py-2">{new Date(log.timestamp).toLocaleString()}</td>
-                <td className="px-3 py-2">{log.severity}</td>
-                <td className="px-3 py-2">{log.category}</td>
-                <td className="px-3 py-2">{log.message}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </main>
+    <>
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <input className="rounded-xl bg-[#111A38] px-3 py-2" placeholder="Search logs" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <select className="rounded-xl bg-[#111A38] px-3 py-2" value={severity} onChange={(e) => setSeverity(e.target.value as typeof severity)}>
+            <option value="all">All severities</option><option value="Critical">Critical</option><option value="Warning">Warning</option><option value="Informational">Informational</option>
+          </select>
+          <input className="rounded-xl bg-[#111A38] px-3 py-2" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          <button className="rounded-xl bg-sky-400 px-3 py-2 font-bold text-slate-900" onClick={exportCsv}>Export CSV</button>
+        </div>
+        <p className="mb-4 text-xs text-slate-400">Session {accessToken.slice(0, 10)}... | Readings {readings.length} | Logs {filtered.length}</p>
+        <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#111A38]">
+          <table className="w-full text-sm">
+            <thead className="bg-white/5">
+              <tr><th className="px-3 py-2 text-left">Time</th><th className="px-3 py-2 text-left">Severity</th><th className="px-3 py-2 text-left">Category</th><th className="px-3 py-2 text-left">Message</th></tr>
+            </thead>
+            <tbody>
+              {filtered.map((log) => (
+                <tr className="border-t border-white/10" key={log.id}>
+                  <td className="px-3 py-2">{new Date(log.timestamp).toLocaleString()}</td>
+                  <td className="px-3 py-2">{log.severity}</td>
+                  <td className="px-3 py-2">{log.category}</td>
+                  <td className="px-3 py-2">{log.message}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+    </>
   );
 }
