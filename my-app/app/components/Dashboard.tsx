@@ -2,6 +2,7 @@
 
 import { ReactNode } from "react";
 import { SystemAlert, WaterReading } from "@/types/hydrowatch";
+import { WaterSampleVisualization } from "./WaterSampleVisualization";
 
 type Props = {
   accessToken: string;
@@ -29,7 +30,6 @@ export function Dashboard({
   const latest = readings.at(-1);
   const trend = readings.length > 1 ? latest!.turbidity - readings[readings.length - 2].turbidity : 0;
   const statusTone = latest?.status === "Very Cloudy" ? "critical" : latest?.status === "Cloudy" || latest?.status === "Slightly Cloudy" ? "warning" : "normal";
-  const statusBadge = getStatusBadge(statusTone);
   const latestEvents = readings.slice(-5).reverse();
 
   return (
@@ -44,119 +44,181 @@ export function Dashboard({
           </span>
         </div>
 
-        {isLoadingReadings ? <div className="h-40 animate-pulse rounded-3xl bg-white/10" /> : !latest ? (
+        {isLoadingReadings ? <div className="h-[420px] animate-pulse rounded-3xl bg-white/10" /> : !latest ? (
           <>
-            <section className="rounded-3xl border border-white/10 bg-[#111A38] p-5 transition-colors duration-700">
-              <p className="text-sm uppercase tracking-[0.2em] text-sky-300">Water Monitoring Station</p>
-              <div className="mt-2 flex flex-wrap items-center gap-3">
-                <h3 className="text-4xl font-extrabold">Waiting for readings</h3>
-                <span className="rounded-full bg-slate-700 px-3 py-1 text-xs font-bold text-slate-300">
-                  0 NTU
-                </span>
-              </div>
-              <p className="mt-2 text-sm text-slate-300">
-                {readingsError
+            <WaterSampleVisualization />
+
+            <PredictionAnalysis
+              confidence="--"
+              forecastSummary={
+                readingsError
                   ? `Unable to load Supabase readings: ${readingsError}`
-                  : "No ESP32 sensor readings are available yet. New Supabase inserts will appear here automatically."}
-              </p>
-            </section>
+                  : "Waiting for ESP32 turbidity readings."
+              }
+              tone="normal"
+              trend="Pending"
+            />
 
-            <section className="mt-4 grid gap-4 md:grid-cols-3">
-              <Metric label="Current NTU Reading" value="-- NTU" sub="Waiting for ESP32" />
-              <Metric label="Water Condition Status" value="Pending" sub="No turbidity sample" />
-              <Metric label="Prediction Status" value="Pending" sub="Trend unavailable" />
-            </section>
+            <TrendPanel readings={[]} tone="normal" />
 
-            <section className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
-              <div className="rounded-3xl border border-white/10 bg-[#111A38] p-5">
-                <h3 className="font-extrabold">Turbidity Trend</h3>
-                <div className="mt-4 flex h-72 items-center justify-center rounded-2xl bg-[#0B1128] p-3 text-sm text-slate-400">
-                  No turbidity readings yet.
-                </div>
-              </div>
-              <div className="space-y-4">
-                <Panel title="Alerts">
-                  <p className="text-sm text-slate-400">No active alerts.</p>
-                </Panel>
-                <Panel title="Quick Info">
-                  <Info label="Health Score" value={`${healthScore}%`} />
-                  <Info label="Water Quality" value={`${waterQualityScore}%`} />
-                  <Info label="Uptime" value={`${uptimeHours} hrs`} />
-                  <Info label="Alert Summary" value="0 active" />
-                  <Info label="Latest Reading" value="Waiting" />
-                  <Info label="Session" value={`${accessToken.slice(0, 10)}...`} />
-                </Panel>
-              </div>
-            </section>
+            <SupportingPanels
+              accessToken={accessToken}
+              alerts={alerts}
+              healthScore={healthScore}
+              latestEvents={latestEvents}
+              latestReading="Waiting"
+              uptimeHours={uptimeHours}
+              waterQualityScore={waterQualityScore}
+            />
           </>
         ) : (
           <>
-            <section className={`rounded-3xl border bg-[#111A38] p-5 transition-colors duration-700 ${statusBadge.heroBorder}`}>
-              <p className="text-sm uppercase tracking-[0.2em] text-sky-300">Water Monitoring Station</p>
-              <div className="mt-2 flex flex-wrap items-center gap-3">
-                <h3 className="text-4xl font-extrabold">{latest.status}</h3>
-                <span className={`rounded-full px-3 py-1 text-xs font-bold transition-colors duration-700 ${statusBadge.className}`}>
-                  {latest.turbidity} NTU
-                </span>
-              </div>
-              <p className="mt-2 text-sm text-slate-300">
-                {latest.prediction} with {latest.predictionConfidence}% confidence. Latest ESP32 packet received {new Date(latest.createdAt).toLocaleTimeString()}.
-              </p>
-            </section>
+            <WaterSampleVisualization reading={latest} />
 
-            <section className="mt-4 grid gap-4 md:grid-cols-3">
-              <Metric label="Current NTU Reading" value={`${latest.turbidity} NTU`} tone={statusTone} sub={`Trend ${trend >= 0 ? "+" : ""}${trend.toFixed(1)} NTU`} />
-              <Metric label="Water Condition Status" value={latest.status} tone={statusTone} sub="Turbidity classification" />
-              <Metric label="Prediction Status" value={latest.prediction} tone={latest.prediction === "Critical Condition Expected" ? "critical" : latest.prediction === "Rising Turbidity" ? "warning" : "normal"} sub={`${latest.predictionConfidence}% confidence`} />
-            </section>
+            <PredictionAnalysis
+              confidence={`${latest.predictionConfidence}%`}
+              forecastSummary={latest.prediction}
+              tone={latest.prediction === "Critical Condition Expected" ? "critical" : latest.prediction === "Rising Turbidity" ? "warning" : "normal"}
+              trend={`${trend >= 0 ? "+" : ""}${trend.toFixed(2)} NTU`}
+            />
 
-            <section className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
-              <div className="rounded-3xl border border-white/10 bg-[#111A38] p-5">
-                <h3 className="font-extrabold">Turbidity Trend</h3>
-                <div className="mt-4 h-72 rounded-2xl bg-[#0B1128] p-3">
-                  <Trend readings={readings.slice(-30)} tone={statusTone} />
-                </div>
-              </div>
-              <div className="space-y-4">
-                <Panel title="Alerts">
-                  {alerts.length === 0 && <p className="text-sm text-slate-400">No active alerts.</p>}
-                  {alerts.slice(0, 5).map((alert) => (
-                    <div className="mb-2 rounded-xl bg-white/5 p-3 transition-colors duration-500" key={alert.id}>
-                      <p className="text-sm font-bold">{alert.severity} - {alert.title}</p>
-                      <p className="text-xs text-slate-300">{alert.message}</p>
-                      <p className="text-xs text-slate-400">NTU {alert.ntuValue} - {alert.action}</p>
-                      <p className="mt-1 text-[11px] text-slate-500">{new Date(alert.timestamp).toLocaleTimeString()}</p>
-                    </div>
-                  ))}
-                </Panel>
-                <Panel title="Quick Info">
-                  <Info label="Monitoring Health" value={`${healthScore}%`} />
-                  <Info label="Water Quality" value={`${waterQualityScore}%`} />
-                  <Info label="Alert Summary" value={`${alerts.length} active`} />
-                  <Info label="Uptime" value={`${uptimeHours} hrs`} />
-                  <Info label="Latest Reading" value={`${latest.turbidity} NTU`} />
-                  <Info label="Session" value={`${accessToken.slice(0, 10)}...`} />
-                </Panel>
-                <Panel title="Recent Turbidity Events">
-                  {latestEvents.map((event) => (
-                    <Info
-                      key={event.id}
-                      label={new Date(event.createdAt).toLocaleTimeString()}
-                      value={`${event.turbidity} NTU`}
-                    />
-                  ))}
-                </Panel>
-              </div>
-            </section>
+            <TrendPanel readings={readings.slice(-30)} tone={statusTone} />
+
+            <SupportingPanels
+              accessToken={accessToken}
+              alerts={alerts}
+              healthScore={healthScore}
+              latestEvents={latestEvents}
+              latestReading={`${latest.turbidity} NTU`}
+              uptimeHours={uptimeHours}
+              waterQualityScore={waterQualityScore}
+            />
           </>
         )}
     </>
   );
 }
-function Metric({ label, value, sub, tone = "normal" }: { label: string; value: string; sub: string; tone?: "normal" | "warning" | "critical" }) {
-  const c = tone === "critical" ? "text-red-300" : tone === "warning" ? "text-yellow-300" : "text-sky-200";
-  return <article className="rounded-2xl border border-white/10 bg-[#111A38] p-4 transition-colors duration-700"><p className="text-sm text-slate-400">{label}</p><p className={`text-2xl font-extrabold transition-colors duration-700 ${c}`}>{value}</p><p className="text-xs text-slate-500">{sub}</p></article>;
+
+function PredictionAnalysis({
+  confidence,
+  forecastSummary,
+  tone,
+  trend,
+}: {
+  confidence: string;
+  forecastSummary: string;
+  tone: "normal" | "warning" | "critical";
+  trend: string;
+}) {
+  const accent = tone === "critical" ? "text-red-300" : tone === "warning" ? "text-yellow-300" : "text-sky-200";
+
+  return (
+    <section className="mt-4 rounded-3xl border border-white/10 bg-[#111A38] p-5 transition-colors duration-700">
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="text-sm uppercase tracking-[0.2em] text-sky-300">Prediction Analysis</p>
+          <h3 className="mt-1 text-2xl font-extrabold">Forecast Overview</h3>
+        </div>
+        <span className={`text-sm font-bold ${accent}`}>{forecastSummary}</span>
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-3">
+        <AnalysisStat label="Trend" value={trend} tone={tone} />
+        <AnalysisStat label="Confidence" value={confidence} tone={tone} />
+        <AnalysisStat label="Forecast Summary" value={forecastSummary} tone={tone} />
+      </div>
+    </section>
+  );
 }
+
+function AnalysisStat({
+  label,
+  tone,
+  value,
+}: {
+  label: string;
+  tone: "normal" | "warning" | "critical";
+  value: string;
+}) {
+  const c = tone === "critical" ? "text-red-300" : tone === "warning" ? "text-yellow-300" : "text-sky-200";
+
+  return (
+    <article className="min-w-0 rounded-2xl border border-white/10 bg-[#0B1128] px-4 py-3">
+      <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">{label}</p>
+      <p className={`mt-2 truncate text-xl font-extrabold ${c}`}>{value}</p>
+    </article>
+  );
+}
+
+function TrendPanel({
+  readings,
+  tone,
+}: {
+  readings: WaterReading[];
+  tone: "normal" | "warning" | "critical";
+}) {
+  return (
+    <section className="mt-4 rounded-3xl border border-white/10 bg-[#111A38] p-5">
+      <h3 className="font-extrabold">Turbidity Trend</h3>
+      <div className="mt-4 flex h-72 items-center justify-center rounded-2xl bg-[#0B1128] p-3 text-sm text-slate-400">
+        {readings.length < 2 ? "No turbidity readings yet." : <Trend readings={readings} tone={tone} />}
+      </div>
+    </section>
+  );
+}
+
+function SupportingPanels({
+  accessToken,
+  alerts,
+  healthScore,
+  latestEvents,
+  latestReading,
+  uptimeHours,
+  waterQualityScore,
+}: {
+  accessToken: string;
+  alerts: SystemAlert[];
+  healthScore: number;
+  latestEvents: WaterReading[];
+  latestReading: string;
+  uptimeHours: string;
+  waterQualityScore: number;
+}) {
+  return (
+    <section className="mt-4 grid gap-4 lg:grid-cols-3">
+      <Panel title="Alerts">
+        {alerts.length === 0 && <p className="text-sm text-slate-400">No active alerts.</p>}
+        {alerts.slice(0, 5).map((alert) => (
+          <div className="mb-2 rounded-xl bg-white/5 p-3 transition-colors duration-500" key={alert.id}>
+            <p className="text-sm font-bold">{alert.severity} - {alert.title}</p>
+            <p className="text-xs text-slate-300">{alert.message}</p>
+            <p className="text-xs text-slate-400">NTU {alert.ntuValue} - {alert.action}</p>
+            <p className="mt-1 text-[11px] text-slate-500">{new Date(alert.timestamp).toLocaleTimeString()}</p>
+          </div>
+        ))}
+      </Panel>
+      <Panel title="Quick Info">
+        <Info label="Monitoring Health" value={`${healthScore}%`} />
+        <Info label="Water Quality" value={`${waterQualityScore}%`} />
+        <Info label="Alert Summary" value={`${alerts.length} active`} />
+        <Info label="Uptime" value={`${uptimeHours} hrs`} />
+        <Info label="Latest Reading" value={latestReading} />
+        <Info label="Session" value={`${accessToken.slice(0, 10)}...`} />
+      </Panel>
+      <Panel title="Recent Turbidity Events">
+        {latestEvents.length === 0 && <p className="text-sm text-slate-400">No recent events.</p>}
+        {latestEvents.map((event) => (
+          <Info
+            key={event.id}
+            label={new Date(event.createdAt).toLocaleTimeString()}
+            value={`${event.turbidity} NTU`}
+          />
+        ))}
+      </Panel>
+    </section>
+  );
+}
+
 function Panel({ title, children }: { title: string; children: ReactNode }) {
   return <section className="rounded-3xl border border-white/10 bg-[#111A38] p-4"><h4 className="mb-3 font-extrabold">{title}</h4>{children}</section>;
 }
@@ -200,22 +262,4 @@ function getPointColor(status: WaterReading["status"]) {
   if (status === "Very Cloudy") return "#F87171";
   if (status === "Cloudy") return "#FACC15";
   return "#34D399";
-}
-function getStatusBadge(tone: "normal" | "warning" | "critical") {
-  if (tone === "critical") {
-    return {
-      className: "bg-red-500/20 text-red-200 ring-1 ring-red-400/40",
-      heroBorder: "border-red-400/35",
-    };
-  }
-  if (tone === "warning") {
-    return {
-      className: "bg-yellow-400/20 text-yellow-200 ring-1 ring-yellow-300/40",
-      heroBorder: "border-yellow-300/30",
-    };
-  }
-  return {
-    className: "bg-emerald-400/20 text-emerald-200 ring-1 ring-emerald-300/35",
-    heroBorder: "border-white/10",
-  };
 }

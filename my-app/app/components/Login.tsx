@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import Image from "next/image";
 import { getSupabaseClient } from "@/utils/supabase/client";
 
 type LoginProps = {
@@ -98,22 +99,14 @@ export function Login({ onLogin }: LoginProps) {
     <main className="flex min-h-screen items-center justify-center bg-[#070B1A] px-4 py-10 text-white">
       <section className="w-full max-w-[500px] rounded-[28px] border border-white/10 bg-[#111A38]/95 px-8 py-6 shadow-2xl shadow-black/30 backdrop-blur sm:px-12">
         <div className="mb-6 text-center">
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-[#38BDF8] to-[#7C3AED] shadow-lg shadow-sky-500/20">
-            <svg
-              aria-hidden="true"
-              className="h-8 w-8 text-white"
-              fill="none"
-              viewBox="0 0 40 40"
-            >
-              <path
-                d="M20 6c0 8-10 10.6-10 20a10 10 0 1 0 20 0c0-9.4-10-12-10-20Z"
-                stroke="currentColor"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="3"
-              />
-            </svg>
-          </div>
+          <Image
+            alt="Hydrowatch logo"
+            className="mx-auto h-40 w-40 object-contain"
+            height={160}
+            priority
+            src="/hydrowatch-logo.png"
+            width={160}
+          />
           <h1 className="text-[30px] font-extrabold leading-tight text-white">
             HydroWatch
           </h1>
