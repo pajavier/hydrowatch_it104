@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { createUtcTimestamp } from "@/utils/time-format";
 export type Esp32ReadingPayload = {
   turbidity: number;
   createdAt?: string;
@@ -45,7 +46,7 @@ export async function ingestEsp32Reading(payload: Esp32ReadingPayload) {
     .from("water_readings")
     .insert({
       turbidity: payload.turbidity,
-      created_at: payload.createdAt ?? new Date().toISOString(),
+      created_at: payload.createdAt ?? createUtcTimestamp(),
     })
     .select("id,turbidity,created_at")
     .single();

@@ -1,11 +1,12 @@
 import { EngineSettings, SystemAlert, WaterReading } from "@/types/hydrowatch";
 import { anomalyScore } from "@/utils/hydrowatch-analytics";
+import { createUtcTimestamp } from "@/utils/time-format";
 
 function createAlert(alert: Omit<SystemAlert, "id" | "timestamp">): SystemAlert {
   return {
     ...alert,
     id: crypto.randomUUID(),
-    timestamp: new Date().toISOString(),
+    timestamp: createUtcTimestamp(),
   };
 }
 

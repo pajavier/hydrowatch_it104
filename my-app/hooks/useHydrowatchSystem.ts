@@ -10,6 +10,7 @@ import {
 } from "@/services/supabase-repository";
 import { EngineSettings, SystemAlert, SystemLog, WaterReading } from "@/types/hydrowatch";
 import { classifyTurbidity, predictTurbidity } from "@/utils/hydrowatch-analytics";
+import { createUtcTimestamp, getUtcTimestampMs } from "@/utils/time-format";
 
 const defaultSettings: EngineSettings = {
   thresholds: { clearMax: 5, cloudyMax: 50, criticalMin: 51 },
@@ -36,6 +37,13 @@ export function useHydrowatchSystem() {
 
   const enrichReading = useCallback(
     (reading: WaterReading, history: WaterReading[]) => {
+      console.info("[HydroWatch Hook] Enriching reading", {
+        id: reading.id,
+        turbidity: reading.turbidity,
+        createdAt: reading.createdAt,
+        historyCount: history.length,
+      });
+
       const prediction = predictTurbidity(
         [...history, reading],
         settings.thresholds.criticalMin,
@@ -53,7 +61,21 @@ export function useHydrowatchSystem() {
 
   const recordReading = useCallback(
     async (reading: WaterReading, persistDerivedData: boolean) => {
-      if (seenReadingIdsRef.current.has(reading.id)) return;
+      console.info("[HydroWatch Hook] recordReading called", {
+        id: reading.id,
+        turbidity: reading.turbidity,
+        createdAt: reading.createdAt,
+        persistDerivedData,
+        alreadySeen: seenReadingIdsRef.current.has(reading.id),
+        currentCount: readingsRef.current.length,
+      });
+
+      if (seenReadingIdsRef.current.has(reading.id)) {
+        console.warn("[HydroWatch Hook] Duplicate reading ignored", {
+          id: reading.id,
+        });
+        return;
+      }
 
       const currentReadings = readingsRef.current;
       const enriched = enrichReading(reading, currentReadings);
@@ -91,6 +113,12 @@ export function useHydrowatchSystem() {
       seenReadingIdsRef.current.add(enriched.id);
       readingsRef.current = [...currentReadings.slice(-149), enriched];
       setReadings(readingsRef.current);
+
+      console.info("[HydroWatch Hook] Reading stored in state", {
+        newCount: readingsRef.current.length,
+        latest: readingsRef.current.at(-1),
+      });
+
       setAlerts((prev) => [...generatedAlerts, ...prev].slice(0, 40));
       setLogs((prev) => [...logBatch, ...prev].slice(0, 300));
 
@@ -114,9 +142,15 @@ export function useHydrowatchSystem() {
     let isMounted = true;
 
     async function loadInitialReadings() {
+      console.info("[HydroWatch Hook] loadInitialReadings started");
       setIsLoadingReadings(true);
       try {
         const databaseReadings = await fetchWaterReadings();
+        console.info("[HydroWatch Hook] fetchWaterReadings returned", {
+          count: databaseReadings.length,
+          latest: databaseReadings.at(-1) ?? null,
+        });
+
         if (!isMounted) return;
         setReadingsError(null);
 
@@ -143,6 +177,13 @@ export function useHydrowatchSystem() {
         seenReadingIdsRef.current = new Set(enrichedReadings.map((reading) => reading.id));
         readingsRef.current = enrichedReadings;
         setReadings(enrichedReadings);
+
+        console.info("[HydroWatch Hook] Initial readings committed to state", {
+          count: enrichedReadings.length,
+          latest: enrichedReadings.at(-1) ?? null,
+          seenIds: seenReadingIdsRef.current.size,
+        });
+
         setAlerts(initialAlerts.slice(0, 40));
         setIsDatasetReady(true);
         setLogs((prev) => [
@@ -153,7 +194,7 @@ export function useHydrowatchSystem() {
               enrichedReadings.length > 0
                 ? `Loaded ${enrichedReadings.length} readings from Supabase.`
                 : "Connected to Supabase. Waiting for ESP32 readings.",
-            timestamp: new Date().toISOString(),
+            timestamp: createUtcTimestamp(),
             category: "system",
           },
           ...initialLogs.slice(0, 80),
@@ -163,6 +204,10 @@ export function useHydrowatchSystem() {
         if (!isMounted) return;
         const message = error instanceof Error ? error.message : "Unknown error";
         console.error("Failed to fetch water readings from Supabase:", error);
+        console.error("[HydroWatch Hook] loadInitialReadings failed", {
+          message,
+          error,
+        });
         setReadingsError(message);
         setIsDatasetReady(true);
         setLogs((prev) => [
@@ -170,7 +215,7 @@ export function useHydrowatchSystem() {
             id: crypto.randomUUID(),
             severity: "Critical",
             message: `Supabase readings failed to load: ${message}`,
-            timestamp: new Date().toISOString(),
+            timestamp: createUtcTimestamp(),
             category: "system",
           },
           ...prev,
@@ -178,6 +223,7 @@ export function useHydrowatchSystem() {
       } finally {
         if (isMounted) {
           setIsLoadingReadings(false);
+          console.info("[HydroWatch Hook] loadInitialReadings finished");
         }
       }
     }
@@ -190,19 +236,42 @@ export function useHydrowatchSystem() {
   }, [enrichReading, settings]);
 
   useEffect(() => {
-    if (!isLive) return;
+    console.info("[HydroWatch Hook] Realtime effect evaluated", {
+      isLive,
+      currentCount: readingsRef.current.length,
+    });
+
+    if (!isLive) {
+      console.warn("[HydroWatch Hook] Realtime subscription skipped because live mode is off");
+      return;
+    }
 
     return subscribeToWaterReadings((payload) => {
+      console.info("[HydroWatch Hook] Realtime callback fired", payload);
       const reading = waterReadingFromRealtimePayload(payload);
-      if (!reading) return;
+      if (!reading) {
+        console.warn("[HydroWatch Hook] Realtime payload could not be mapped to WaterReading");
+        return;
+      }
+
       void recordReading(reading, true);
     });
   }, [isLive, recordReading]);
 
   useEffect(() => {
     setReadings((prev) => {
+      console.info("[HydroWatch Hook] Re-enriching readings after settings change", {
+        count: prev.length,
+      });
+
       const enrichedReadings = prev.map((reading, index) => enrichReading(reading, prev.slice(0, index)));
       readingsRef.current = enrichedReadings;
+
+      console.info("[HydroWatch Hook] Re-enriched readings committed", {
+        count: enrichedReadings.length,
+        latest: enrichedReadings.at(-1) ?? null,
+      });
+
       return enrichedReadings;
     });
   }, [enrichReading]);
@@ -218,8 +287,8 @@ export function useHydrowatchSystem() {
   const uptimeHours = useMemo(
     () => {
       if (readings.length < 2) return "0.00";
-      const first = new Date(readings[0].createdAt).getTime();
-      const latestReading = new Date(readings[readings.length - 1].createdAt).getTime();
+      const first = getUtcTimestampMs(readings[0].createdAt);
+      const latestReading = getUtcTimestampMs(readings[readings.length - 1].createdAt);
       return (Math.max(0, latestReading - first) / (1000 * 60 * 60)).toFixed(2);
     },
     [readings],

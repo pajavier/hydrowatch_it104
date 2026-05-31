@@ -1,8 +1,9 @@
 "use client";
 
-import { ReactNode } from "react";
+import { ReactNode, useEffect, useState } from "react";
 import { SystemAlert, WaterReading } from "@/types/hydrowatch";
-import { WaterSampleVisualization } from "./WaterSampleVisualization";
+import { formatManilaDateTime, formatManilaTime, getUtcTimestampMs } from "@/utils/time-format";
+import { getWaterSampleState, WaterSampleVisualization } from "./WaterSampleVisualization";
 
 type Props = {
   accessToken: string;
@@ -27,10 +28,29 @@ export function Dashboard({
   waterQualityScore,
   uptimeHours,
 }: Props) {
+  const [currentTime, setCurrentTime] = useState(() => Date.now());
   const latest = readings.at(-1);
   const trend = readings.length > 1 ? latest!.turbidity - readings[readings.length - 2].turbidity : 0;
   const statusTone = latest?.status === "Very Cloudy" ? "critical" : latest?.status === "Cloudy" || latest?.status === "Slightly Cloudy" ? "warning" : "normal";
   const latestEvents = readings.slice(-5).reverse();
+  const deviceStatus = latest ? getDeviceStatus(latest.createdAt, currentTime) : "OFFLINE";
+
+  console.info("[HydroWatch Dashboard] render", {
+    readingsCount: readings.length,
+    latest,
+    isLoadingReadings,
+    readingsError,
+    isLive,
+    deviceStatus,
+  });
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setCurrentTime(Date.now());
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, []);
 
   return (
     <>
@@ -39,14 +59,26 @@ export function Dashboard({
             <h2 className="text-3xl font-extrabold">Dashboard</h2>
             <p className="text-sm text-slate-400">Real-time analytics from ESP32 telemetry</p>
           </div>
-          <span className={`rounded-full px-3 py-1 text-xs font-bold ${isLive ? "bg-emerald-500/20 text-emerald-300" : "bg-slate-700 text-slate-300"}`}>
-            {isLive ? "LIVE" : "PAUSED"}
+          <span className={`rounded-full px-3 py-1 text-xs font-bold ring-1 ${
+            deviceStatus === "LIVE"
+              ? "bg-emerald-500/20 text-emerald-300 ring-emerald-300/30"
+              : "bg-red-500/20 text-red-300 ring-red-300/35"
+          }`}>
+            {deviceStatus}
           </span>
         </div>
 
         {isLoadingReadings ? <div className="h-[420px] animate-pulse rounded-3xl bg-white/10" /> : !latest ? (
           <>
-            <WaterSampleVisualization />
+            <WaterMonitoringStation
+              accessToken={accessToken}
+              alerts={alerts}
+              healthScore={healthScore}
+              latestEvents={latestEvents}
+              latestReading="Waiting"
+              uptimeHours={uptimeHours}
+              waterQualityScore={waterQualityScore}
+            />
 
             <PredictionAnalysis
               confidence="--"
@@ -60,20 +92,19 @@ export function Dashboard({
             />
 
             <TrendPanel readings={[]} tone="normal" />
-
-            <SupportingPanels
+          </>
+        ) : (
+          <>
+            <WaterMonitoringStation
               accessToken={accessToken}
               alerts={alerts}
               healthScore={healthScore}
               latestEvents={latestEvents}
-              latestReading="Waiting"
+              latestReading={`${latest.turbidity} NTU`}
+              reading={latest}
               uptimeHours={uptimeHours}
               waterQualityScore={waterQualityScore}
             />
-          </>
-        ) : (
-          <>
-            <WaterSampleVisualization reading={latest} />
 
             <PredictionAnalysis
               confidence={`${latest.predictionConfidence}%`}
@@ -83,19 +114,102 @@ export function Dashboard({
             />
 
             <TrendPanel readings={readings.slice(-30)} tone={statusTone} />
-
-            <SupportingPanels
-              accessToken={accessToken}
-              alerts={alerts}
-              healthScore={healthScore}
-              latestEvents={latestEvents}
-              latestReading={`${latest.turbidity} NTU`}
-              uptimeHours={uptimeHours}
-              waterQualityScore={waterQualityScore}
-            />
           </>
         )}
     </>
+  );
+}
+
+function WaterMonitoringStation({
+  accessToken,
+  alerts,
+  healthScore,
+  latestEvents,
+  latestReading,
+  reading,
+  uptimeHours,
+  waterQualityScore,
+}: {
+  accessToken: string;
+  alerts: SystemAlert[];
+  healthScore: number;
+  latestEvents: WaterReading[];
+  latestReading: string;
+  reading?: WaterReading;
+  uptimeHours: string;
+  waterQualityScore: number;
+}) {
+  const ntu = reading?.turbidity ?? 0;
+  const sampleState = getWaterSampleState(ntu, Boolean(reading));
+  const lastReading = reading
+    ? formatManilaDateTime(reading.createdAt)
+    : "Waiting for reading";
+
+  return (
+    <section className={`rounded-3xl border bg-[#111A38] p-5 shadow-2xl shadow-black/25 transition-colors duration-700 sm:p-6 ${sampleState.ring}`}>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm uppercase tracking-[0.2em] text-sky-300">Water Monitoring Station</p>
+          <h3 className="mt-1 text-3xl font-extrabold">Live Sample Overview</h3>
+        </div>
+        <span className={`w-fit rounded-full px-3 py-1 text-xs font-extrabold ring-1 ${sampleState.text}`}>
+          {sampleState.badge}
+        </span>
+      </div>
+
+      <div className="mt-5 grid gap-3 md:grid-cols-3">
+        <StationStat label="Current NTU" value={reading ? `${ntu.toFixed(2)} NTU` : "-- NTU"} />
+        <StationStat label="Condition" value={sampleState.condition} />
+        <StationStat label="Last Reading" value={lastReading} />
+      </div>
+
+      <div className="mt-5 grid items-center gap-5 xl:grid-cols-[minmax(0,0.95fr)_minmax(320px,1.05fr)]">
+        <WaterSampleVisualization reading={reading} />
+
+        <div className="grid gap-4">
+          <StationPanel title="Alerts">
+            {alerts.length === 0 && <p className="text-sm text-slate-400">No active alerts.</p>}
+            {alerts.slice(0, 5).map((alert) => (
+              <div className="mb-2 rounded-xl bg-white/5 p-3 transition-colors duration-500" key={alert.id}>
+                <p className="text-sm font-bold">{alert.severity} - {alert.title}</p>
+                <p className="text-xs text-slate-300">{alert.message}</p>
+                <p className="text-xs text-slate-400">NTU {alert.ntuValue} - {alert.action}</p>
+                <p className="mt-1 text-[11px] text-slate-500">{formatManilaTime(alert.timestamp)}</p>
+              </div>
+            ))}
+          </StationPanel>
+
+          <StationPanel title="Quick Info">
+            <Info label="Monitoring Health" value={`${healthScore}%`} />
+            <Info label="Water Quality" value={`${waterQualityScore}%`} />
+            <Info label="Alert Summary" value={`${alerts.length} active`} />
+            <Info label="Uptime" value={`${uptimeHours} hrs`} />
+            <Info label="Latest Reading" value={latestReading} />
+            <Info label="Session" value={`${accessToken.slice(0, 10)}...`} />
+          </StationPanel>
+
+          <StationPanel title="Recent Turbidity Events">
+            {latestEvents.length === 0 && <p className="text-sm text-slate-400">No recent events.</p>}
+            {latestEvents.map((event) => (
+              <Info
+                key={event.id}
+                label={formatManilaTime(event.createdAt)}
+                value={`${event.turbidity} NTU`}
+              />
+            ))}
+          </StationPanel>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function StationStat({ label, value }: { label: string; value: string }) {
+  return (
+    <article className="min-w-0 rounded-2xl border border-white/10 bg-[#0B1128] px-4 py-4">
+      <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">{label}</p>
+      <p className="mt-2 truncate text-xl font-extrabold text-white">{value}</p>
+    </article>
   );
 }
 
@@ -167,60 +281,13 @@ function TrendPanel({
   );
 }
 
-function SupportingPanels({
-  accessToken,
-  alerts,
-  healthScore,
-  latestEvents,
-  latestReading,
-  uptimeHours,
-  waterQualityScore,
-}: {
-  accessToken: string;
-  alerts: SystemAlert[];
-  healthScore: number;
-  latestEvents: WaterReading[];
-  latestReading: string;
-  uptimeHours: string;
-  waterQualityScore: number;
-}) {
+function StationPanel({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="mt-4 grid gap-4 lg:grid-cols-3">
-      <Panel title="Alerts">
-        {alerts.length === 0 && <p className="text-sm text-slate-400">No active alerts.</p>}
-        {alerts.slice(0, 5).map((alert) => (
-          <div className="mb-2 rounded-xl bg-white/5 p-3 transition-colors duration-500" key={alert.id}>
-            <p className="text-sm font-bold">{alert.severity} - {alert.title}</p>
-            <p className="text-xs text-slate-300">{alert.message}</p>
-            <p className="text-xs text-slate-400">NTU {alert.ntuValue} - {alert.action}</p>
-            <p className="mt-1 text-[11px] text-slate-500">{new Date(alert.timestamp).toLocaleTimeString()}</p>
-          </div>
-        ))}
-      </Panel>
-      <Panel title="Quick Info">
-        <Info label="Monitoring Health" value={`${healthScore}%`} />
-        <Info label="Water Quality" value={`${waterQualityScore}%`} />
-        <Info label="Alert Summary" value={`${alerts.length} active`} />
-        <Info label="Uptime" value={`${uptimeHours} hrs`} />
-        <Info label="Latest Reading" value={latestReading} />
-        <Info label="Session" value={`${accessToken.slice(0, 10)}...`} />
-      </Panel>
-      <Panel title="Recent Turbidity Events">
-        {latestEvents.length === 0 && <p className="text-sm text-slate-400">No recent events.</p>}
-        {latestEvents.map((event) => (
-          <Info
-            key={event.id}
-            label={new Date(event.createdAt).toLocaleTimeString()}
-            value={`${event.turbidity} NTU`}
-          />
-        ))}
-      </Panel>
+    <section className="rounded-2xl border border-white/10 bg-[#0B1128]/70 p-4">
+      <h4 className="mb-3 font-extrabold">{title}</h4>
+      {children}
     </section>
   );
-}
-
-function Panel({ title, children }: { title: string; children: ReactNode }) {
-  return <section className="rounded-3xl border border-white/10 bg-[#111A38] p-4"><h4 className="mb-3 font-extrabold">{title}</h4>{children}</section>;
 }
 function Info({ label, value }: { label: string; value: string }) {
   return <div className="mb-2 flex justify-between rounded-xl bg-white/5 px-3 py-2 text-sm"><span className="text-slate-400">{label}</span><span className="font-bold">{value}</span></div>;
@@ -262,4 +329,11 @@ function getPointColor(status: WaterReading["status"]) {
   if (status === "Very Cloudy") return "#F87171";
   if (status === "Cloudy") return "#FACC15";
   return "#34D399";
+}
+
+function getDeviceStatus(lastReadingTimestamp: string, now = Date.now()) {
+  const seconds =
+    (now - getUtcTimestampMs(lastReadingTimestamp)) / 1000;
+
+  return seconds <= 15 ? "LIVE" : "OFFLINE";
 }

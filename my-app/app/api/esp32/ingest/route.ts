@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ingestEsp32Reading, parseEsp32ReadingPayload } from "@/services/iot-ingestion";
+import { createUtcTimestamp } from "@/utils/time-format";
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
@@ -20,7 +21,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       ok: true,
       reading,
-      receivedAt: new Date().toISOString(),
+      receivedAt: createUtcTimestamp(),
     });
   } catch (error) {
     return NextResponse.json(

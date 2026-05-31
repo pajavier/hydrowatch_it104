@@ -63,7 +63,33 @@ let client: ReturnType<typeof createClient<HydrowatchDatabase>> | null = null;
 export function getDataSupabaseClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !key) return null;
+
+  console.info("[HydroWatch Supabase] Client initialization check", {
+    hasUrl: Boolean(url),
+    hasAnonKey: Boolean(key),
+    urlHost: safeHost(url),
+    reusedClient: Boolean(client),
+  });
+
+  if (!url || !key) {
+    console.error("[HydroWatch Supabase] Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY");
+    return null;
+  }
+
   client ??= createClient<HydrowatchDatabase>(url, key);
+  console.info("[HydroWatch Supabase] Data client ready", {
+    urlHost: safeHost(url),
+  });
+
   return client;
+}
+
+function safeHost(url?: string) {
+  if (!url) return null;
+
+  try {
+    return new URL(url).host;
+  } catch {
+    return "invalid-url";
+  }
 }

@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { SystemLog, WaterReading } from "@/types/hydrowatch";
+import { createUtcTimestamp, formatManilaDateInput, formatManilaDateTime } from "@/utils/time-format";
 
 type LogsProps = {
   accessToken: string;
@@ -19,7 +20,7 @@ export function Logs({ accessToken, readings, logs }: LogsProps) {
       logs.filter((log) => {
         const severityMatch = severity === "all" || log.severity === severity;
         const searchMatch = search === "" || log.message.toLowerCase().includes(search.toLowerCase());
-        const dateMatch = date === "" || log.timestamp.startsWith(date);
+        const dateMatch = date === "" || formatManilaDateInput(log.timestamp) === date;
         return severityMatch && searchMatch && dateMatch;
       }),
     [logs, search, severity, date],
@@ -34,7 +35,7 @@ export function Logs({ accessToken, readings, logs }: LogsProps) {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `hydrowatch_logs_${new Date().toISOString()}.csv`;
+    link.download = `hydrowatch_logs_${createUtcTimestamp()}.csv`;
     link.click();
     URL.revokeObjectURL(url);
   };
@@ -58,7 +59,7 @@ export function Logs({ accessToken, readings, logs }: LogsProps) {
             <tbody>
               {filtered.map((log) => (
                 <tr className="border-t border-white/10" key={log.id}>
-                  <td className="px-3 py-2">{new Date(log.timestamp).toLocaleString()}</td>
+                  <td className="px-3 py-2">{formatManilaDateTime(log.timestamp)}</td>
                   <td className="px-3 py-2">{log.severity}</td>
                   <td className="px-3 py-2">{log.category}</td>
                   <td className="px-3 py-2">{log.message}</td>
