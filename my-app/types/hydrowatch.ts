@@ -8,7 +8,7 @@ export type PredictionLabel =
 export type AlertSeverity = "Critical" | "Warning" | "Informational";
 
 export type WaterReading = {
-  id: string;
+  id: string | number;
   turbidity: number;
   status: TurbidityStatus;
   prediction: PredictionLabel;

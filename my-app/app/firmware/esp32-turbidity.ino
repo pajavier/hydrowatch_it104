@@ -9,6 +9,7 @@
 */
 
 #include <WiFi.h>
+#include <WiFiClient.h>
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
 
@@ -18,7 +19,8 @@ const char* password = "N1ghTnDay!";
 
 // HydroWatch ingestion endpoint.
 // The server assigns readings to ACTIVE_SENSOR_USER_ID.
-const char* hydrowatchIngestUrl = "https://your-hydrowatch-app.example.com/api/esp32/ingest";
+// For local testing, run Next.js on the LAN and use your computer's Wi-Fi IP.
+const char* hydrowatchIngestUrl = "http://192.168.1.35:3000/api/esp32/ingest";
 
 const int turbidityPin = 36;
 const unsigned long readingIntervalMs = 5000;
@@ -51,13 +53,22 @@ void postTurbidityToSupabase(double reading) {
     return;
   }
 
-  WiFiClientSecure client;
-  client.setInsecure();
-
   HTTPClient http;
+  WiFiClient client;
+  WiFiClientSecure secureClient;
+  String ingestUrl = hydrowatchIngestUrl;
+  bool connectedToEndpoint = false;
 
-  if (!http.begin(client, hydrowatchIngestUrl)) {
+  if (ingestUrl.startsWith("https://")) {
+    secureClient.setInsecure();
+    connectedToEndpoint = http.begin(secureClient, ingestUrl);
+  } else {
+    connectedToEndpoint = http.begin(client, ingestUrl);
+  }
+
+  if (!connectedToEndpoint) {
     Serial.println("Supabase POST Failed");
+    Serial.println("Unable to open ingestion endpoint");
     return;
   }
 

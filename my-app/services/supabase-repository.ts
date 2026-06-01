@@ -53,7 +53,7 @@ function toWaterReading(row: WaterReadingRow): WaterReading {
   }
 
   return {
-    id: String(row.id),
+    id: row.id,
     turbidity,
     status: classifyTurbidity(turbidity),
     prediction: "Stable Trend",
@@ -131,7 +131,7 @@ export async function insertEsp32WaterReading(input: NewWaterReadingInput) {
 
 export async function insertPrediction(prediction: {
   accessToken: string;
-  readingId: string;
+  readingId: string | number;
   label: PredictionLabel;
   confidence: number;
   projectedNTU: number;
@@ -139,6 +139,11 @@ export async function insertPrediction(prediction: {
 }) {
   const table = tableFor("predictions", prediction.accessToken);
   if (!table) return;
+  console.info("[HydroWatch Supabase] Inserting derived row", {
+    destinationTable: "predictions",
+    readingId: prediction.readingId,
+    readingIdType: typeof prediction.readingId,
+  });
   await table.insert({
     user_id: prediction.userId,
     reading_id: prediction.readingId,
@@ -151,6 +156,11 @@ export async function insertPrediction(prediction: {
 export async function insertAlerts(alerts: SystemAlert[], scope: UserScope) {
   const table = tableFor("alerts", scope.accessToken);
   if (!table || alerts.length === 0) return;
+  console.info("[HydroWatch Supabase] Inserting derived rows", {
+    destinationTable: "alerts",
+    count: alerts.length,
+    hasReadingId: false,
+  });
   await table.insert(
     alerts.map((alert) => ({
       id: alert.id,
@@ -167,6 +177,11 @@ export async function insertAlerts(alerts: SystemAlert[], scope: UserScope) {
 export async function insertLogs(logs: SystemLog[], scope: UserScope) {
   const table = tableFor("system_logs", scope.accessToken);
   if (!table || logs.length === 0) return;
+  console.info("[HydroWatch Supabase] Inserting derived rows", {
+    destinationTable: "system_logs",
+    count: logs.length,
+    hasReadingId: false,
+  });
   await table.insert(
     logs.map((log) => ({
       id: log.id,

@@ -30,14 +30,16 @@ export function Dashboard({
 }: Props) {
   const [currentTime, setCurrentTime] = useState(() => Date.now());
   const latest = readings.at(-1);
-  const trend = readings.length > 1 ? latest!.turbidity - readings[readings.length - 2].turbidity : 0;
+  const hasValidLatestReading = Boolean(latest && Number.isFinite(latest.turbidity));
+  const trend = hasValidLatestReading && readings.length > 1 ? latest!.turbidity - readings[readings.length - 2].turbidity : 0;
   const statusTone = latest?.status === "Very Cloudy" ? "critical" : latest?.status === "Cloudy" || latest?.status === "Slightly Cloudy" ? "warning" : "normal";
   const latestEvents = readings.slice(-5).reverse();
-  const deviceStatus = latest ? getDeviceStatus(latest.createdAt, currentTime) : "OFFLINE";
+  const deviceStatus = hasValidLatestReading ? getDeviceStatus(latest!.createdAt, currentTime) : "OFFLINE";
 
   console.info("[HydroWatch Dashboard] render", {
-    readingsCount: readings.length,
-    latest,
+    readingsLength: readings.length,
+    latestReading: latest ?? null,
+    latestTurbidity: latest?.turbidity ?? null,
     isLoadingReadings,
     readingsError,
     isLive,
@@ -68,7 +70,7 @@ export function Dashboard({
           </span>
         </div>
 
-        {isLoadingReadings ? <div className="h-[420px] animate-pulse rounded-3xl bg-white/10" /> : !latest ? (
+        {isLoadingReadings ? <div className="h-[420px] animate-pulse rounded-3xl bg-white/10" /> : !hasValidLatestReading ? (
           <>
             <WaterMonitoringStation
               accessToken={accessToken}
@@ -100,16 +102,16 @@ export function Dashboard({
               alerts={alerts}
               healthScore={healthScore}
               latestEvents={latestEvents}
-              latestReading={`${latest.turbidity} NTU`}
+              latestReading={`${latest!.turbidity} NTU`}
               reading={latest}
               uptimeHours={uptimeHours}
               waterQualityScore={waterQualityScore}
             />
 
             <PredictionAnalysis
-              confidence={`${latest.predictionConfidence}%`}
-              forecastSummary={latest.prediction}
-              tone={latest.prediction === "Critical Condition Expected" ? "critical" : latest.prediction === "Rising Turbidity" ? "warning" : "normal"}
+              confidence={`${latest!.predictionConfidence}%`}
+              forecastSummary={latest!.prediction}
+              tone={latest!.prediction === "Critical Condition Expected" ? "critical" : latest!.prediction === "Rising Turbidity" ? "warning" : "normal"}
               trend={`${trend >= 0 ? "+" : ""}${trend.toFixed(2)} NTU`}
             />
 
@@ -139,8 +141,9 @@ function WaterMonitoringStation({
   uptimeHours: string;
   waterQualityScore: number;
 }) {
-  const ntu = reading?.turbidity ?? 0;
-  const sampleState = getWaterSampleState(ntu, Boolean(reading));
+  const hasValidReading = Boolean(reading && Number.isFinite(reading.turbidity));
+  const ntu = hasValidReading ? reading!.turbidity : 0;
+  const sampleState = getWaterSampleState(ntu, hasValidReading);
   const lastReading = reading
     ? formatManilaDateTime(reading.createdAt)
     : "Waiting for reading";
@@ -164,7 +167,13 @@ function WaterMonitoringStation({
       </div>
 
       <div className="mt-5 grid items-center gap-5 xl:grid-cols-[minmax(0,0.95fr)_minmax(320px,1.05fr)]">
-        <WaterSampleVisualization reading={reading} />
+        {hasValidReading ? (
+          <WaterSampleVisualization reading={reading} />
+        ) : (
+          <div className="flex min-h-[340px] items-center justify-center rounded-2xl bg-[#0B1128] px-4 py-8 text-center text-sm text-slate-400 sm:min-h-[370px] lg:min-h-[400px]">
+            No turbidity readings available.
+          </div>
+        )}
 
         <div className="grid gap-4">
           <StationPanel title="Alerts">
@@ -275,7 +284,7 @@ function TrendPanel({
     <section className="mt-4 rounded-3xl border border-white/10 bg-[#111A38] p-5">
       <h3 className="font-extrabold">Turbidity Trend</h3>
       <div className="mt-4 flex h-72 items-center justify-center rounded-2xl bg-[#0B1128] p-3 text-sm text-slate-400">
-        {readings.length < 2 ? "No turbidity readings yet." : <Trend readings={readings} tone={tone} />}
+        {readings.length < 2 ? "No turbidity readings available." : <Trend readings={readings} tone={tone} />}
       </div>
     </section>
   );
@@ -302,13 +311,25 @@ function Trend({ readings, tone }: { readings: WaterReading[]; tone: "normal" | 
   const points = readings.map((r, i) => {
     const x = p + (i / (readings.length - 1)) * (w - p * 2);
     const y = h - p - (Math.min(r.turbidity, max) / max) * (h - p * 2);
-    return `${x},${y}`;
-  });
+    return { reading: r, x, y };
+  }).filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y));
+
+  if (points.length < 2) {
+    console.warn("[HydroWatch Dashboard] Trend skipped because chart points are invalid", {
+      readingsLength: readings.length,
+      validPoints: points.length,
+      latestReading: readings.at(-1) ?? null,
+      latestTurbidity: readings.at(-1)?.turbidity ?? null,
+    });
+    return <span>No turbidity readings available.</span>;
+  }
+
+  const polylinePoints = points.map(({ x, y }) => `${x},${y}`).join(" ");
   return (
     <svg className="h-full w-full" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
-      <polyline fill="none" stroke={stroke} strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" points={points.join(" ")} className="transition-all duration-700 ease-out" />
-      {readings.map((reading, index) => {
-        const [cx, cy] = points[index].split(",").map(Number);
+      <polyline fill="none" stroke={stroke} strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" points={polylinePoints} className="transition-all duration-700 ease-out" />
+      {points.map(({ reading, x: cx, y: cy }) => {
+        if (!Number.isFinite(cx) || !Number.isFinite(cy)) return null;
         return (
           <circle
             className="transition-all duration-700 ease-out"

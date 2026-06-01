@@ -77,13 +77,26 @@ const particles = [
 export function WaterSampleVisualization({ reading }: WaterSampleVisualizationProps) {
   const clipId = useId();
   const glowId = useId();
-  const ntu = reading?.turbidity ?? 0;
-  const state = getSampleState(ntu, Boolean(reading));
+  const hasValidReading = Boolean(reading && Number.isFinite(reading.turbidity));
+  const ntu = hasValidReading ? reading!.turbidity : 0;
+  const state = getSampleState(ntu, hasValidReading);
   const visibleParticles = useMemo(
     () => particles.slice(0, state.particleCount),
     [state.particleCount],
   );
   const waterLevel = 210;
+
+  if (!hasValidReading) {
+    console.warn("[HydroWatch Visualization] SVG skipped because reading data is missing or invalid", {
+      reading: reading ?? null,
+      turbidity: reading?.turbidity ?? null,
+    });
+    return (
+      <div className="flex min-h-[340px] w-full items-center justify-center rounded-2xl bg-[#0B1128] px-4 py-8 text-center text-sm text-slate-400 sm:min-h-[370px] lg:min-h-[400px]">
+        No turbidity readings available.
+      </div>
+    );
+  }
 
   return (
     <motion.div

@@ -29,12 +29,21 @@ export function useHydrowatchSystem(accessToken: string | null, userId: string |
   const [readings, setReadings] = useState<WaterReading[]>([]);
   const [alerts, setAlerts] = useState<SystemAlert[]>([]);
   const [logs, setLogs] = useState<SystemLog[]>([]);
-  const [isLive, setIsLive] = useState(true);
+  const [isRealtimeEnabled, setIsLive] = useState(true);
   const [isDatasetReady, setIsDatasetReady] = useState(false);
   const [isLoadingReadings, setIsLoadingReadings] = useState(true);
   const [readingsError, setReadingsError] = useState<string | null>(null);
+  const [liveClock, setLiveClock] = useState(() => Date.now());
   const readingsRef = useRef<WaterReading[]>([]);
-  const seenReadingIdsRef = useRef<Set<string>>(new Set());
+  const seenReadingIdsRef = useRef<Set<WaterReading["id"]>>(new Set());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setLiveClock(Date.now());
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     readingsRef.current = readings;
@@ -157,6 +166,10 @@ export function useHydrowatchSystem(accessToken: string | null, userId: string |
     async function loadInitialReadings() {
       console.info("[HydroWatch Hook] loadInitialReadings started");
       if (!accessToken || !userId) {
+        console.warn("[HydroWatch Hook] No authenticated user for readings query", {
+          hasAccessToken: Boolean(accessToken),
+          userId,
+        });
         seenReadingIdsRef.current = new Set();
         readingsRef.current = [];
         setReadings([]);
@@ -171,8 +184,10 @@ export function useHydrowatchSystem(accessToken: string | null, userId: string |
       try {
         const databaseReadings = await fetchWaterReadings({ accessToken, userId });
         console.info("[HydroWatch Hook] fetchWaterReadings returned", {
-          count: databaseReadings.length,
-          latest: databaseReadings.at(-1) ?? null,
+          queryResultCount: databaseReadings.length,
+          currentAuthenticatedUser: userId,
+          latestReading: databaseReadings.at(-1) ?? null,
+          latestTurbidity: databaseReadings.at(-1)?.turbidity ?? null,
         });
 
         if (!isMounted) return;
@@ -261,8 +276,9 @@ export function useHydrowatchSystem(accessToken: string | null, userId: string |
 
   useEffect(() => {
     console.info("[HydroWatch Hook] Realtime effect evaluated", {
-      isLive,
+      isRealtimeEnabled,
       currentCount: readingsRef.current.length,
+      currentAuthenticatedUser: userId,
     });
 
     if (!accessToken || !userId) {
@@ -270,7 +286,7 @@ export function useHydrowatchSystem(accessToken: string | null, userId: string |
       return;
     }
 
-    if (!isLive) {
+    if (!isRealtimeEnabled) {
       console.warn("[HydroWatch Hook] Realtime subscription skipped because live mode is off");
       return;
     }
@@ -285,7 +301,7 @@ export function useHydrowatchSystem(accessToken: string | null, userId: string |
 
       void recordReading(reading, true);
     });
-  }, [accessToken, isLive, recordReading, userId]);
+  }, [accessToken, isRealtimeEnabled, recordReading, userId]);
 
   useEffect(() => {
     setReadings((prev) => {
@@ -306,6 +322,11 @@ export function useHydrowatchSystem(accessToken: string | null, userId: string |
   }, [enrichReading]);
 
   const latest = readings.at(-1);
+  const isLive = useMemo(() => {
+    if (!latest || !Number.isFinite(latest.turbidity)) return false;
+    const ageSeconds = (liveClock - getUtcTimestampMs(latest.createdAt)) / 1000;
+    return ageSeconds <= 15;
+  }, [latest, liveClock]);
   const healthScore = useMemo(() => {
     if (!latest) return 100;
     const turbidityPenalty = Math.min(95, Math.max(0, latest.turbidity - 5) * 1.2);

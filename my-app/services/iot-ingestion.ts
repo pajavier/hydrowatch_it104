@@ -67,6 +67,12 @@ export async function ingestEsp32Reading(payload: Esp32ReadingPayload) {
   const assignedUserId = getActiveSensorUserId();
   const createdAt = payload.createdAt ?? createUtcTimestamp();
 
+  console.info("[HydroWatch Ingestion] ESP32 reading ingest started", {
+    assignedUserId,
+    turbidity: payload.turbidity,
+    createdAt,
+  });
+
   const history = await fetchAssignedUserReadingHistory(assignedUserId);
   const { data, error } = await supabase
     .from("water_readings")
@@ -79,6 +85,14 @@ export async function ingestEsp32Reading(payload: Esp32ReadingPayload) {
     .single();
 
   if (error) throw error;
+
+  console.info("[HydroWatch Ingestion] ESP32 reading stored", {
+    assignedUserId,
+    insertedReading: data ?? null,
+    insertedReadingId: data?.id ?? null,
+    insertedReadingIdType: typeof data?.id,
+    historyCount: history.length,
+  });
 
   await storeDerivedOwnerData(toWaterReading(data as WaterReadingRecord), history);
   return data;
@@ -94,11 +108,22 @@ async function fetchAssignedUserReadingHistory(userId: string) {
     .limit(20);
 
   if (error) throw error;
+  console.info("[HydroWatch Ingestion] Assigned user reading history loaded", {
+    assignedUserId: userId,
+    queryResultCount: data?.length ?? 0,
+    latestRow: data?.[0] ?? null,
+  });
   return ((data ?? []) as WaterReadingRecord[]).reverse().map(toWaterReading);
 }
 
 async function storeDerivedOwnerData(reading: OwnerWaterReading, history: WaterReading[]) {
   const supabase = getServerSupabaseClient();
+  console.info("[HydroWatch Ingestion] Derived writes starting", {
+    insertedReadingId: reading.id,
+    insertedReadingIdType: typeof reading.id,
+    destinationTables: ["predictions", "alerts", "system_logs"],
+  });
+
   const prediction = predictTurbidity(
     [...history, reading],
     ingestionSettings.thresholds.criticalMin,
@@ -134,48 +159,117 @@ async function storeDerivedOwnerData(reading: OwnerWaterReading, history: WaterR
     })),
   ];
 
-  const results = await Promise.all([
-    supabase.from("predictions").insert({
+  console.info("[HydroWatch Ingestion] Inserting derived row", {
+    destinationTable: "predictions",
+    readingId: reading.id,
+    readingIdType: typeof reading.id,
+  });
+  const predictionPayload = {
+    user_id: reading.userId,
+    reading_id: reading.id,
+    label: prediction.label,
+    confidence: prediction.confidence,
+    projected_ntu: prediction.projectedNTU,
+  };
+  let predictionResult = await supabase.from("predictions").insert(predictionPayload);
+
+  if (isUuidCastError(predictionResult.error)) {
+    console.error("[HydroWatch Ingestion] predictions.reading_id rejected the water_readings.id value", {
+      destinationTable: "predictions",
+      readingId: reading.id,
+      readingIdType: typeof reading.id,
+      error: summarizeSupabaseResult(predictionResult),
+      nextAction: "Retrying prediction insert without reading_id. Apply 20260601_align_reading_id_types.sql to restore the foreign key link.",
+    });
+
+    const predictionWithoutReadingId = {
+      user_id: predictionPayload.user_id,
+      label: predictionPayload.label,
+      confidence: predictionPayload.confidence,
+      projected_ntu: predictionPayload.projected_ntu,
+    };
+    predictionResult = await supabase.from("predictions").insert(predictionWithoutReadingId);
+  }
+
+  console.info("[HydroWatch Ingestion] Inserting derived rows", {
+    destinationTable: "alerts",
+    count: generatedAlerts.length,
+    hasReadingId: false,
+  });
+  const alertsResult = generatedAlerts.length > 0
+    ? supabase.from("alerts").insert(
+        generatedAlerts.map((alert) => ({
+          id: alert.id,
+          user_id: reading.userId,
+          severity: alert.severity,
+          type: alert.type,
+          message: alert.message,
+          action: alert.action,
+          created_at: alert.timestamp,
+        })),
+      )
+    : Promise.resolve({ data: null, error: null });
+
+  console.info("[HydroWatch Ingestion] Inserting derived rows", {
+    destinationTable: "system_logs",
+    count: logBatch.length,
+    hasReadingId: false,
+  });
+  const logsResult = await supabase.from("system_logs").insert(
+    logBatch.map((log) => ({
+      id: log.id,
       user_id: reading.userId,
-      reading_id: reading.id,
-      label: prediction.label,
-      confidence: prediction.confidence,
-      projected_ntu: prediction.projectedNTU,
-    }),
-    generatedAlerts.length > 0
-      ? supabase.from("alerts").insert(
-          generatedAlerts.map((alert) => ({
-            id: alert.id,
-            user_id: reading.userId,
-            severity: alert.severity,
-            type: alert.type,
-            message: alert.message,
-            action: alert.action,
-            created_at: alert.timestamp,
-          })),
-        )
-      : Promise.resolve({ error: null }),
-    supabase.from("system_logs").insert(
-      logBatch.map((log) => ({
-        id: log.id,
-        user_id: reading.userId,
-        severity: log.severity,
-        category: log.category,
-        message: log.message,
-        created_at: log.timestamp,
-      })),
-    ),
-  ]);
+      severity: log.severity,
+      category: log.category,
+      message: log.message,
+      created_at: log.timestamp,
+    })),
+  );
+
+  const resolvedAlertsResult = await alertsResult;
+  const results = [predictionResult, resolvedAlertsResult, logsResult];
+  console.info("[HydroWatch Ingestion] Derived write results", {
+    predictions: summarizeSupabaseResult(predictionResult),
+    alerts: summarizeSupabaseResult(resolvedAlertsResult),
+    systemLogs: summarizeSupabaseResult(logsResult),
+  });
 
   const derivedError = results.find((result) => "error" in result && result.error)?.error;
   if (derivedError) throw derivedError;
+}
+
+function summarizeSupabaseResult(result: { error?: unknown }) {
+  const error = result.error;
+  if (!error) return { ok: true };
+
+  return {
+    ok: false,
+    error:
+      typeof error === "object" && error !== null
+        ? {
+            code: "code" in error ? error.code : undefined,
+            message: "message" in error ? error.message : undefined,
+            details: "details" in error ? error.details : undefined,
+            hint: "hint" in error ? error.hint : undefined,
+          }
+        : error,
+  };
+}
+
+function isUuidCastError(error: unknown) {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "22P02"
+  );
 }
 
 function toWaterReading(row: WaterReadingRecord): OwnerWaterReading {
   const turbidity = Number(row.turbidity);
 
   return {
-    id: String(row.id),
+    id: row.id,
     userId: row.user_id,
     turbidity: Number.isFinite(turbidity) ? turbidity : 0,
     status: classifyTurbidity(Number.isFinite(turbidity) ? turbidity : 0),

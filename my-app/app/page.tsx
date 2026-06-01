@@ -27,9 +27,26 @@ export default function App() {
           data: { session },
         } = await supabase.auth.getSession();
 
+        console.info("[HydroWatch Auth] Existing Supabase session", {
+          hasSession: Boolean(session),
+          expiresAt: session?.expires_at ?? null,
+          user: session?.user
+            ? {
+                id: getSessionUserField(session.user, "id"),
+                email: getSessionUserField(session.user, "email"),
+              }
+            : null,
+        });
+
         if (session?.access_token) {
+          const authenticatedUserId = getAuthenticatedUserId(session.user, session.access_token);
+          console.info("[HydroWatch Auth] Current authenticated user", {
+            userId: authenticatedUserId,
+            sessionUserId: getSessionUserField(session.user, "id"),
+            email: getSessionUserField(session.user, "email"),
+          });
           setAccessToken(session.access_token);
-          setCurrentUserId(getAuthenticatedUserId(session.user, session.access_token));
+          setCurrentUserId(authenticatedUserId);
         }
       } catch (error) {
         console.error("Error checking session:", error);
@@ -42,6 +59,10 @@ export default function App() {
   }, []);
 
   const handleLogin = (token: string, userId?: string | null) => {
+    console.info("[HydroWatch Auth] Login completed", {
+      currentAuthenticatedUser: userId ?? null,
+      hasAccessToken: Boolean(token),
+    });
     setAccessToken(token);
     setCurrentUserId(userId ?? null);
     setCurrentScreen("dashboard");
@@ -110,4 +131,10 @@ export default function App() {
       )}
     </AppLayout>
   );
+}
+
+function getSessionUserField(user: unknown, field: "id" | "email") {
+  if (typeof user !== "object" || user === null || !(field in user)) return null;
+  const value = (user as Record<"id" | "email", unknown>)[field];
+  return typeof value === "string" ? value : null;
 }

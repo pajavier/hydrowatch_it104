@@ -6,13 +6,13 @@ type HydrowatchDatabase = {
     Tables: {
       water_readings: {
         Row: {
-          id: string;
+          id: string | number;
           user_id: string;
           turbidity: number | string;
           created_at: string;
         };
         Insert: {
-          id?: string;
+          id?: string | number;
           user_id: string;
           turbidity: number;
           created_at?: string;
@@ -23,7 +23,7 @@ type HydrowatchDatabase = {
         Row: Record<string, unknown>;
         Insert: {
           user_id: string;
-          reading_id: string;
+          reading_id: string | number;
           label: PredictionLabel;
           confidence: number;
           projected_ntu: number;
