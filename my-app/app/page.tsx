@@ -8,14 +8,16 @@ import { Login } from "./components/Login";
 import { Settings } from "./components/Settings";
 import { getSupabaseClient } from "@/utils/supabase/client";
 import { useHydrowatchSystem } from "@/hooks/useHydrowatchSystem";
+import { getAuthenticatedUserId } from "@/utils/auth-user";
 
 type Screen = "dashboard" | "settings" | "logs";
 
 export default function App() {
   const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [currentScreen, setCurrentScreen] = useState<Screen>("dashboard");
   const [isCheckingSession, setIsCheckingSession] = useState(true);
-  const system = useHydrowatchSystem();
+  const system = useHydrowatchSystem(accessToken, currentUserId);
 
   useEffect(() => {
     const checkExistingSession = async () => {
@@ -27,6 +29,7 @@ export default function App() {
 
         if (session?.access_token) {
           setAccessToken(session.access_token);
+          setCurrentUserId(getAuthenticatedUserId(session.user, session.access_token));
         }
       } catch (error) {
         console.error("Error checking session:", error);
@@ -38,8 +41,9 @@ export default function App() {
     checkExistingSession();
   }, []);
 
-  const handleLogin = (token: string) => {
+  const handleLogin = (token: string, userId?: string | null) => {
     setAccessToken(token);
+    setCurrentUserId(userId ?? null);
     setCurrentScreen("dashboard");
   };
 
@@ -48,6 +52,7 @@ export default function App() {
       const supabase = getSupabaseClient();
       await supabase.auth.signOut();
       setAccessToken(null);
+      setCurrentUserId(null);
       setCurrentScreen("dashboard");
       localStorage.removeItem("rememberMe");
     } catch (error) {

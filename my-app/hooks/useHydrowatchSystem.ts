@@ -19,7 +19,12 @@ const defaultSettings: EngineSettings = {
   predictionAggressiveness: 1,
 };
 
-export function useHydrowatchSystem() {
+type SupabaseErrorLike = {
+  code?: unknown;
+  message?: unknown;
+};
+
+export function useHydrowatchSystem(accessToken: string | null, userId: string | null) {
   const [settings, setSettings] = useState<EngineSettings>(defaultSettings);
   const [readings, setReadings] = useState<WaterReading[]>([]);
   const [alerts, setAlerts] = useState<SystemAlert[]>([]);
@@ -68,7 +73,13 @@ export function useHydrowatchSystem() {
         persistDerivedData,
         alreadySeen: seenReadingIdsRef.current.has(reading.id),
         currentCount: readingsRef.current.length,
+        userId,
       });
+
+      if (!accessToken || !userId) {
+        console.warn("[HydroWatch Hook] Ignoring reading without an authenticated user");
+        return;
+      }
 
       if (seenReadingIdsRef.current.has(reading.id)) {
         console.warn("[HydroWatch Hook] Duplicate reading ignored", {
@@ -126,16 +137,18 @@ export function useHydrowatchSystem() {
 
       await Promise.allSettled([
           insertPrediction({
+            accessToken,
             readingId: enriched.id,
             label: prediction.label,
             confidence: prediction.confidence,
             projectedNTU: prediction.projectedNTU,
+            userId,
           }),
-          insertAlerts(generatedAlerts),
-          insertLogs(logBatch),
+          insertAlerts(generatedAlerts, { accessToken, userId }),
+          insertLogs(logBatch, { accessToken, userId }),
         ]);
     },
-    [enrichReading, settings],
+    [accessToken, enrichReading, settings, userId],
   );
 
   useEffect(() => {
@@ -143,9 +156,20 @@ export function useHydrowatchSystem() {
 
     async function loadInitialReadings() {
       console.info("[HydroWatch Hook] loadInitialReadings started");
+      if (!accessToken || !userId) {
+        seenReadingIdsRef.current = new Set();
+        readingsRef.current = [];
+        setReadings([]);
+        setAlerts([]);
+        setLogs([]);
+        setIsDatasetReady(false);
+        setIsLoadingReadings(false);
+        return;
+      }
+
       setIsLoadingReadings(true);
       try {
-        const databaseReadings = await fetchWaterReadings();
+        const databaseReadings = await fetchWaterReadings({ accessToken, userId });
         console.info("[HydroWatch Hook] fetchWaterReadings returned", {
           count: databaseReadings.length,
           latest: databaseReadings.at(-1) ?? null,
@@ -202,7 +226,7 @@ export function useHydrowatchSystem() {
         ]);
       } catch (error) {
         if (!isMounted) return;
-        const message = error instanceof Error ? error.message : "Unknown error";
+        const message = getLoadReadingsErrorMessage(error);
         console.error("Failed to fetch water readings from Supabase:", error);
         console.error("[HydroWatch Hook] loadInitialReadings failed", {
           message,
@@ -233,7 +257,7 @@ export function useHydrowatchSystem() {
     return () => {
       isMounted = false;
     };
-  }, [enrichReading, settings]);
+  }, [accessToken, enrichReading, settings, userId]);
 
   useEffect(() => {
     console.info("[HydroWatch Hook] Realtime effect evaluated", {
@@ -241,12 +265,17 @@ export function useHydrowatchSystem() {
       currentCount: readingsRef.current.length,
     });
 
+    if (!accessToken || !userId) {
+      console.warn("[HydroWatch Hook] Realtime subscription skipped because no user is authenticated");
+      return;
+    }
+
     if (!isLive) {
       console.warn("[HydroWatch Hook] Realtime subscription skipped because live mode is off");
       return;
     }
 
-    return subscribeToWaterReadings((payload) => {
+    return subscribeToWaterReadings({ accessToken, userId }, (payload) => {
       console.info("[HydroWatch Hook] Realtime callback fired", payload);
       const reading = waterReadingFromRealtimePayload(payload);
       if (!reading) {
@@ -256,7 +285,7 @@ export function useHydrowatchSystem() {
 
       void recordReading(reading, true);
     });
-  }, [isLive, recordReading]);
+  }, [accessToken, isLive, recordReading, userId]);
 
   useEffect(() => {
     setReadings((prev) => {
@@ -310,4 +339,24 @@ export function useHydrowatchSystem() {
     uptimeHours,
     waterQualityScore,
   };
+}
+
+function getLoadReadingsErrorMessage(error: unknown) {
+  if (isSupabaseErrorLike(error)) {
+    if (
+      error.code === "42703" &&
+      typeof error.message === "string" &&
+      error.message.includes("user_id")
+    ) {
+      return "Supabase schema migration is required: water_readings.user_id does not exist yet.";
+    }
+
+    return typeof error.message === "string" ? error.message : "Supabase query failed.";
+  }
+
+  return error instanceof Error ? error.message : "Unknown error";
+}
+
+function isSupabaseErrorLike(error: unknown): error is SupabaseErrorLike {
+  return typeof error === "object" && error !== null && ("code" in error || "message" in error);
 }

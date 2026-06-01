@@ -7,11 +7,13 @@ type HydrowatchDatabase = {
       water_readings: {
         Row: {
           id: string;
+          user_id: string;
           turbidity: number | string;
           created_at: string;
         };
         Insert: {
           id?: string;
+          user_id: string;
           turbidity: number;
           created_at?: string;
         };
@@ -20,6 +22,7 @@ type HydrowatchDatabase = {
       predictions: {
         Row: Record<string, unknown>;
         Insert: {
+          user_id: string;
           reading_id: string;
           label: PredictionLabel;
           confidence: number;
@@ -31,6 +34,7 @@ type HydrowatchDatabase = {
         Row: Record<string, unknown>;
         Insert: {
           id: string;
+          user_id: string;
           severity: AlertSeverity;
           type: "high_turbidity" | "rapid_increase" | "sensor_stability";
           message: string;
@@ -43,6 +47,7 @@ type HydrowatchDatabase = {
         Row: Record<string, unknown>;
         Insert: {
           id: string;
+          user_id: string;
           severity: AlertSeverity;
           category: "reading" | "alert" | "prediction" | "system";
           message: string;
@@ -59,8 +64,9 @@ type HydrowatchDatabase = {
 };
 
 let client: ReturnType<typeof createClient<HydrowatchDatabase>> | null = null;
+let clientAccessToken: string | null = null;
 
-export function getDataSupabaseClient() {
+export function getDataSupabaseClient(accessToken: string) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
@@ -68,7 +74,7 @@ export function getDataSupabaseClient() {
     hasUrl: Boolean(url),
     hasAnonKey: Boolean(key),
     urlHost: safeHost(url),
-    reusedClient: Boolean(client),
+    reusedClient: Boolean(client && clientAccessToken === accessToken),
   });
 
   if (!url || !key) {
@@ -76,7 +82,22 @@ export function getDataSupabaseClient() {
     return null;
   }
 
-  client ??= createClient<HydrowatchDatabase>(url, key);
+  if (!client || clientAccessToken !== accessToken) {
+    client = createClient<HydrowatchDatabase>(url, key, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+      },
+      global: {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      },
+    });
+    clientAccessToken = accessToken;
+    client.realtime.setAuth(accessToken);
+  }
+
   console.info("[HydroWatch Supabase] Data client ready", {
     urlHost: safeHost(url),
   });

@@ -16,9 +16,9 @@
 const char* ssid = "Cyber_Central_2";
 const char* password = "N1ghTnDay!";
 
-// Supabase REST endpoint and anon public key
-const char* supabaseUrl = "https://wibmnjhitslqmqhxxewu.supabase.co/rest/v1/water_readings";
-const char* supabaseAnonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndpYm1uamhpdHNscW1xaHh4ZXd1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc5ODc0OTAsImV4cCI6MjA5MzU2MzQ5MH0.njZOkZUrxr43I_nJcb6Bus4KVLUBsfMmeWqjt3qQe5I";
+// HydroWatch ingestion endpoint.
+// The server assigns readings to ACTIVE_SENSOR_USER_ID.
+const char* hydrowatchIngestUrl = "https://your-hydrowatch-app.example.com/api/esp32/ingest";
 
 const int turbidityPin = 36;
 const unsigned long readingIntervalMs = 5000;
@@ -56,15 +56,12 @@ void postTurbidityToSupabase(double reading) {
 
   HTTPClient http;
 
-  if (!http.begin(client, supabaseUrl)) {
+  if (!http.begin(client, hydrowatchIngestUrl)) {
     Serial.println("Supabase POST Failed");
     return;
   }
 
-  http.addHeader("apikey", supabaseAnonKey);
-  http.addHeader("Authorization", String("Bearer ") + supabaseAnonKey);
   http.addHeader("Content-Type", "application/json");
-  http.addHeader("Prefer", "return=minimal");
 
   String payload = "{\"turbidity\":";
   payload += String(reading, 2);

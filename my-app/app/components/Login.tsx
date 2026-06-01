@@ -3,9 +3,10 @@
 import { FormEvent, useState } from "react";
 import Image from "next/image";
 import { getSupabaseClient } from "@/utils/supabase/client";
+import { getAuthenticatedUserId } from "@/utils/auth-user";
 
 type LoginProps = {
-  onLogin: (token: string) => void;
+  onLogin: (token: string, userId?: string | null) => void;
 };
 
 type AuthMode = "signIn" | "signUp";
@@ -71,7 +72,10 @@ export function Login({ onLogin }: LoginProps) {
         localStorage.removeItem("rememberMe");
       }
 
-      onLogin(data.session.access_token);
+      onLogin(
+        data.session.access_token,
+        getAuthenticatedUserId(data.session.user, data.session.access_token),
+      );
     } catch (authError) {
       setError(
         authError instanceof Error

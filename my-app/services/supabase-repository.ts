@@ -4,22 +4,33 @@ import { classifyTurbidity } from "@/utils/hydrowatch-analytics";
 import { createUtcTimestamp } from "@/utils/time-format";
 
 export type WaterReadingRow = {
-  id: string;
+  id: string | number;
+  user_id: string;
   turbidity: number | string;
   created_at: string;
 };
 
 export type NewWaterReadingInput = {
+  accessToken: string;
   turbidity: number;
   createdAt?: string;
+  userId: string;
 };
 
 type InsertableTable = {
   insert: (values: unknown) => PromiseLike<unknown>;
 };
 
-function tableFor(name: "water_readings" | "predictions" | "alerts" | "system_logs") {
-  const client = getDataSupabaseClient();
+type UserScope = {
+  accessToken: string;
+  userId: string;
+};
+
+function tableFor(
+  name: "water_readings" | "predictions" | "alerts" | "system_logs",
+  accessToken: string,
+) {
+  const client = getDataSupabaseClient(accessToken);
   if (!client) return null;
   return client.from(name) as unknown as InsertableTable;
 }
@@ -42,7 +53,7 @@ function toWaterReading(row: WaterReadingRow): WaterReading {
   }
 
   return {
-    id: row.id,
+    id: String(row.id),
     turbidity,
     status: classifyTurbidity(turbidity),
     prediction: "Stable Trend",
@@ -51,14 +62,15 @@ function toWaterReading(row: WaterReadingRow): WaterReading {
   };
 }
 
-export async function fetchWaterReadings(limit = 150): Promise<WaterReading[]> {
+export async function fetchWaterReadings(scope: UserScope, limit = 150): Promise<WaterReading[]> {
   console.info("[HydroWatch Supabase] fetchWaterReadings started", {
     table: "water_readings",
-    expectedColumns: ["id", "turbidity", "created_at"],
+    expectedColumns: ["id", "user_id", "turbidity", "created_at"],
     limit,
+    userId: scope.userId,
   });
 
-  const client = getDataSupabaseClient();
+  const client = getDataSupabaseClient(scope.accessToken);
   if (!client) {
     console.error("[HydroWatch Supabase] fetchWaterReadings aborted: data client is null");
     throw new Error("Supabase environment variables are not configured.");
@@ -66,7 +78,8 @@ export async function fetchWaterReadings(limit = 150): Promise<WaterReading[]> {
 
   const { data, error } = await client
     .from("water_readings")
-    .select("id,turbidity,created_at")
+    .select("id,user_id,turbidity,created_at")
+    .eq("user_id", scope.userId)
     .order("created_at", { ascending: true });
 
   if (error) {
@@ -83,6 +96,7 @@ export async function fetchWaterReadings(limit = 150): Promise<WaterReading[]> {
     returnedRows: data?.length ?? 0,
     firstRow: data?.[0] ?? null,
     latestRow: data?.at(-1) ?? null,
+    userId: scope.userId,
   });
 
   const readings = (data ?? []).slice(-limit).map((row) => toWaterReading(row as WaterReadingRow));
@@ -96,7 +110,7 @@ export async function fetchWaterReadings(limit = 150): Promise<WaterReading[]> {
 }
 
 export async function insertEsp32WaterReading(input: NewWaterReadingInput) {
-  const client = getDataSupabaseClient();
+  const client = getDataSupabaseClient(input.accessToken);
   if (!client) {
     throw new Error("Supabase environment variables are not configured.");
   }
@@ -104,10 +118,11 @@ export async function insertEsp32WaterReading(input: NewWaterReadingInput) {
   const { data, error } = await client
     .from("water_readings")
     .insert({
+      user_id: input.userId,
       turbidity: input.turbidity,
       created_at: input.createdAt ?? createUtcTimestamp(),
     } as never)
-    .select("id,turbidity,created_at")
+    .select("id,user_id,turbidity,created_at")
     .single();
 
   if (error) throw error;
@@ -115,14 +130,17 @@ export async function insertEsp32WaterReading(input: NewWaterReadingInput) {
 }
 
 export async function insertPrediction(prediction: {
+  accessToken: string;
   readingId: string;
   label: PredictionLabel;
   confidence: number;
   projectedNTU: number;
+  userId: string;
 }) {
-  const table = tableFor("predictions");
+  const table = tableFor("predictions", prediction.accessToken);
   if (!table) return;
   await table.insert({
+    user_id: prediction.userId,
     reading_id: prediction.readingId,
     label: prediction.label,
     confidence: prediction.confidence,
@@ -130,12 +148,13 @@ export async function insertPrediction(prediction: {
   });
 }
 
-export async function insertAlerts(alerts: SystemAlert[]) {
-  const table = tableFor("alerts");
+export async function insertAlerts(alerts: SystemAlert[], scope: UserScope) {
+  const table = tableFor("alerts", scope.accessToken);
   if (!table || alerts.length === 0) return;
   await table.insert(
     alerts.map((alert) => ({
       id: alert.id,
+      user_id: scope.userId,
       severity: alert.severity,
       type: alert.type,
       message: alert.message,
@@ -145,12 +164,13 @@ export async function insertAlerts(alerts: SystemAlert[]) {
   );
 }
 
-export async function insertLogs(logs: SystemLog[]) {
-  const table = tableFor("system_logs");
+export async function insertLogs(logs: SystemLog[], scope: UserScope) {
+  const table = tableFor("system_logs", scope.accessToken);
   if (!table || logs.length === 0) return;
   await table.insert(
     logs.map((log) => ({
       id: log.id,
+      user_id: scope.userId,
       severity: log.severity,
       category: log.category,
       message: log.message,
@@ -159,14 +179,18 @@ export async function insertLogs(logs: SystemLog[]) {
   );
 }
 
-export function subscribeToWaterReadings(onInsert: (payload: unknown) => void) {
+export function subscribeToWaterReadings(
+  scope: UserScope,
+  onInsert: (payload: unknown) => void,
+) {
   console.info("[HydroWatch Realtime] subscribeToWaterReadings starting", {
     schema: "public",
     table: "water_readings",
     event: "INSERT",
+    userId: scope.userId,
   });
 
-  const client = getDataSupabaseClient();
+  const client = getDataSupabaseClient(scope.accessToken);
   if (!client) {
     console.error("[HydroWatch Realtime] Subscription aborted: data client is null");
     return () => undefined;
@@ -176,7 +200,12 @@ export function subscribeToWaterReadings(onInsert: (payload: unknown) => void) {
     .channel("hydrowatch-water-readings")
     .on(
       "postgres_changes",
-      { event: "INSERT", schema: "public", table: "water_readings" },
+      {
+        event: "INSERT",
+        schema: "public",
+        table: "water_readings",
+        filter: `user_id=eq.${scope.userId}`,
+      },
       (payload) => {
         console.info("[HydroWatch Realtime] INSERT payload received", payload);
         onInsert(payload);
