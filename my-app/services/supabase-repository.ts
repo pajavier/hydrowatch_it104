@@ -10,6 +10,15 @@ export type WaterReadingRow = {
   created_at: string;
 };
 
+export type SystemLogRow = {
+  id: string;
+  user_id: string;
+  severity: SystemLog["severity"];
+  category: SystemLog["category"];
+  message: string;
+  created_at: string;
+};
+
 export type NewWaterReadingInput = {
   accessToken: string;
   turbidity: number;
@@ -62,6 +71,16 @@ function toWaterReading(row: WaterReadingRow): WaterReading {
   };
 }
 
+function toSystemLog(row: SystemLogRow): SystemLog {
+  return {
+    id: row.id,
+    severity: row.severity,
+    category: row.category,
+    message: row.message,
+    timestamp: row.created_at,
+  };
+}
+
 export async function fetchWaterReadings(scope: UserScope, limit = 150): Promise<WaterReading[]> {
   console.info("[HydroWatch Supabase] fetchWaterReadings started", {
     table: "water_readings",
@@ -107,6 +126,47 @@ export async function fetchWaterReadings(scope: UserScope, limit = 150): Promise
   });
 
   return readings;
+}
+
+export async function fetchSystemLogs(scope: UserScope, limit = 300): Promise<SystemLog[]> {
+  console.info("[HydroWatch Supabase] fetchSystemLogs started", {
+    table: "system_logs",
+    expectedColumns: ["id", "user_id", "severity", "category", "message", "created_at"],
+    limit,
+    userId: scope.userId,
+  });
+
+  const client = getDataSupabaseClient(scope.accessToken);
+  if (!client) {
+    console.error("[HydroWatch Supabase] fetchSystemLogs aborted: data client is null");
+    throw new Error("Supabase environment variables are not configured.");
+  }
+
+  const { data, error } = await client
+    .from("system_logs")
+    .select("id,user_id,severity,category,message,created_at")
+    .eq("user_id", scope.userId)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    console.error("[HydroWatch Supabase] fetchSystemLogs query error", {
+      message: error.message,
+      code: error.code,
+      details: error.details,
+      hint: error.hint,
+    });
+    throw error;
+  }
+
+  const logs = (data ?? []).map((row) => toSystemLog(row as SystemLogRow));
+
+  console.info("[HydroWatch Supabase] fetchSystemLogs mapped logs", {
+    mappedCount: logs.length,
+    latestLog: logs[0] ?? null,
+  });
+
+  return logs;
 }
 
 export async function insertEsp32WaterReading(input: NewWaterReadingInput) {

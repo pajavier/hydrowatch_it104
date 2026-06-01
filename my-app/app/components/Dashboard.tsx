@@ -77,7 +77,7 @@ export function Dashboard({
               alerts={alerts}
               healthScore={healthScore}
               latestEvents={latestEvents}
-              latestReading="Waiting"
+              latestReading="Waiting for reading"
               uptimeHours={uptimeHours}
               waterQualityScore={waterQualityScore}
             />
@@ -167,13 +167,7 @@ function WaterMonitoringStation({
       </div>
 
       <div className="mt-5 grid items-center gap-5 xl:grid-cols-[minmax(0,0.95fr)_minmax(320px,1.05fr)]">
-        {hasValidReading ? (
-          <WaterSampleVisualization reading={reading} />
-        ) : (
-          <div className="flex min-h-[340px] items-center justify-center rounded-2xl bg-[#0B1128] px-4 py-8 text-center text-sm text-slate-400 sm:min-h-[370px] lg:min-h-[400px]">
-            No turbidity readings available.
-          </div>
-        )}
+        <WaterSampleVisualization reading={reading} />
 
         <div className="grid gap-4">
           <StationPanel title="Alerts">

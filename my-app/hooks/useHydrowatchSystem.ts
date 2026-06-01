@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { evaluateAlerts } from "@/services/alert-engine";
 import {
+  fetchSystemLogs,
   fetchWaterReadings,
   insertAlerts,
   insertLogs,
@@ -182,12 +183,20 @@ export function useHydrowatchSystem(accessToken: string | null, userId: string |
 
       setIsLoadingReadings(true);
       try {
-        const databaseReadings = await fetchWaterReadings({ accessToken, userId });
+        const [databaseReadings, databaseLogs] = await Promise.all([
+          fetchWaterReadings({ accessToken, userId }),
+          fetchSystemLogs({ accessToken, userId }),
+        ]);
         console.info("[HydroWatch Hook] fetchWaterReadings returned", {
           queryResultCount: databaseReadings.length,
           currentAuthenticatedUser: userId,
           latestReading: databaseReadings.at(-1) ?? null,
           latestTurbidity: databaseReadings.at(-1)?.turbidity ?? null,
+        });
+        console.info("[HydroWatch Hook] fetchSystemLogs returned", {
+          queryResultCount: databaseLogs.length,
+          currentAuthenticatedUser: userId,
+          latestLog: databaseLogs[0] ?? null,
         });
 
         if (!isMounted) return;
@@ -195,22 +204,12 @@ export function useHydrowatchSystem(accessToken: string | null, userId: string |
 
         const enrichedReadings: WaterReading[] = [];
         const initialAlerts: SystemAlert[] = [];
-        const initialLogs: SystemLog[] = [];
 
         databaseReadings.forEach((reading) => {
           const enriched = enrichReading(reading, enrichedReadings);
           const generatedAlerts = evaluateAlerts(enriched, enrichedReadings, settings);
           enrichedReadings.push(enriched);
           initialAlerts.unshift(...generatedAlerts);
-          initialLogs.unshift(
-            ...generatedAlerts.map((alert) => ({
-              id: crypto.randomUUID(),
-              severity: alert.severity,
-              message: `${alert.title}: ${alert.message} Recommendation: ${alert.action}`,
-              timestamp: alert.timestamp,
-              category: "alert" as const,
-            })),
-          );
         });
 
         seenReadingIdsRef.current = new Set(enrichedReadings.map((reading) => reading.id));
@@ -224,21 +223,8 @@ export function useHydrowatchSystem(accessToken: string | null, userId: string |
         });
 
         setAlerts(initialAlerts.slice(0, 40));
+        setLogs(databaseLogs);
         setIsDatasetReady(true);
-        setLogs((prev) => [
-          {
-            id: crypto.randomUUID(),
-            severity: "Informational",
-            message:
-              enrichedReadings.length > 0
-                ? `Loaded ${enrichedReadings.length} readings from Supabase.`
-                : "Connected to Supabase. Waiting for ESP32 readings.",
-            timestamp: createUtcTimestamp(),
-            category: "system",
-          },
-          ...initialLogs.slice(0, 80),
-          ...prev,
-        ]);
       } catch (error) {
         if (!isMounted) return;
         const message = getLoadReadingsErrorMessage(error);

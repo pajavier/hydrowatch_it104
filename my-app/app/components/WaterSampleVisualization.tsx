@@ -84,25 +84,19 @@ export function WaterSampleVisualization({ reading }: WaterSampleVisualizationPr
     () => particles.slice(0, state.particleCount),
     [state.particleCount],
   );
-  const waterLevel = 210;
-
-  if (!hasValidReading) {
-    console.warn("[HydroWatch Visualization] SVG skipped because reading data is missing or invalid", {
-      reading: reading ?? null,
-      turbidity: reading?.turbidity ?? null,
-    });
-    return (
-      <div className="flex min-h-[340px] w-full items-center justify-center rounded-2xl bg-[#0B1128] px-4 py-8 text-center text-sm text-slate-400 sm:min-h-[370px] lg:min-h-[400px]">
-        No turbidity readings available.
-      </div>
-    );
-  }
+  const waterLevel = hasValidReading ? 210 : 500;
 
   return (
     <motion.div
-      animate={state.pulse ? { filter: ["drop-shadow(0 0 0 rgba(248,113,113,0))", "drop-shadow(0 0 28px rgba(248,113,113,0.34))", "drop-shadow(0 0 0 rgba(248,113,113,0))"] } : {}}
+      animate={
+        state.pulse
+          ? { filter: ["drop-shadow(0 0 0 rgba(248,113,113,0))", "drop-shadow(0 0 28px rgba(248,113,113,0.34))", "drop-shadow(0 0 0 rgba(248,113,113,0))"] }
+          : !hasValidReading
+            ? { y: [0, -3, 0] }
+            : {}
+      }
       className="relative flex min-h-[340px] w-full items-center justify-center overflow-visible px-2 py-3 sm:min-h-[370px] lg:min-h-[400px]"
-      transition={{ duration: 1.8, repeat: state.pulse ? Infinity : 0, ease: "easeInOut" }}
+      transition={{ duration: state.pulse ? 1.8 : 4.5, repeat: state.pulse || !hasValidReading ? Infinity : 0, ease: "easeInOut" }}
     >
           <div className="absolute bottom-8 h-8 w-52 rounded-full bg-sky-300/10 blur-xl" />
           <div className="absolute bottom-9 h-5 w-40 rounded-full bg-black/35 blur-md" />
@@ -140,38 +134,42 @@ export function WaterSampleVisualization({ reading }: WaterSampleVisualizationPr
             </motion.g>
 
             <g clipPath={`url(#${clipId})`}>
-              <motion.path
-                animate={{
-                  d: [
-                    `M80 ${waterLevel} C132 ${waterLevel - 18} 184 ${waterLevel + 18} 236 ${waterLevel} S340 ${waterLevel - 18} 392 ${waterLevel} S464 ${waterLevel + 16} 520 ${waterLevel} V520 H80 Z`,
-                    `M80 ${waterLevel} C132 ${waterLevel + 16} 184 ${waterLevel - 18} 236 ${waterLevel} S340 ${waterLevel + 18} 392 ${waterLevel} S464 ${waterLevel - 16} 520 ${waterLevel} V520 H80 Z`,
-                  ],
-                  fill: state.water,
-                  opacity: state.opacity,
-                }}
-                filter={`url(#${glowId})`}
-                transition={{
-                  d: { duration: 4.2, repeat: Infinity, repeatType: "reverse", ease: "easeInOut" },
-                  fill: { duration: 0.8 },
-                  opacity: { duration: 0.8 },
-                }}
-              />
-              <motion.path
-                animate={{
-                  d: [
-                    `M82 ${waterLevel - 2} C134 ${waterLevel - 25} 178 ${waterLevel + 10} 232 ${waterLevel - 4} S342 ${waterLevel - 20} 394 ${waterLevel - 2} S462 ${waterLevel + 10} 518 ${waterLevel - 4}`,
-                    `M82 ${waterLevel - 2} C134 ${waterLevel + 12} 178 ${waterLevel - 24} 232 ${waterLevel - 4} S342 ${waterLevel + 14} 394 ${waterLevel - 2} S462 ${waterLevel - 22} 518 ${waterLevel - 4}`,
-                  ],
-                  stroke: state.surface,
-                }}
-                fill="none"
-                strokeLinecap="round"
-                strokeWidth="7"
-                transition={{
-                  d: { duration: 3.6, repeat: Infinity, repeatType: "reverse", ease: "easeInOut" },
-                  stroke: { duration: 0.8 },
-                }}
-              />
+              {hasValidReading && (
+                <>
+                  <motion.path
+                    animate={{
+                      d: [
+                        `M80 ${waterLevel} C132 ${waterLevel - 18} 184 ${waterLevel + 18} 236 ${waterLevel} S340 ${waterLevel - 18} 392 ${waterLevel} S464 ${waterLevel + 16} 520 ${waterLevel} V520 H80 Z`,
+                        `M80 ${waterLevel} C132 ${waterLevel + 16} 184 ${waterLevel - 18} 236 ${waterLevel} S340 ${waterLevel + 18} 392 ${waterLevel} S464 ${waterLevel - 16} 520 ${waterLevel} V520 H80 Z`,
+                      ],
+                      fill: state.water,
+                      opacity: state.opacity,
+                    }}
+                    filter={`url(#${glowId})`}
+                    transition={{
+                      d: { duration: 4.2, repeat: Infinity, repeatType: "reverse", ease: "easeInOut" },
+                      fill: { duration: 0.8 },
+                      opacity: { duration: 0.8 },
+                    }}
+                  />
+                  <motion.path
+                    animate={{
+                      d: [
+                        `M82 ${waterLevel - 2} C134 ${waterLevel - 25} 178 ${waterLevel + 10} 232 ${waterLevel - 4} S342 ${waterLevel - 20} 394 ${waterLevel - 2} S462 ${waterLevel + 10} 518 ${waterLevel - 4}`,
+                        `M82 ${waterLevel - 2} C134 ${waterLevel + 12} 178 ${waterLevel - 24} 232 ${waterLevel - 4} S342 ${waterLevel + 14} 394 ${waterLevel - 2} S462 ${waterLevel - 22} 518 ${waterLevel - 4}`,
+                      ],
+                      stroke: state.surface,
+                    }}
+                    fill="none"
+                    strokeLinecap="round"
+                    strokeWidth="7"
+                    transition={{
+                      d: { duration: 3.6, repeat: Infinity, repeatType: "reverse", ease: "easeInOut" },
+                      stroke: { duration: 0.8 },
+                    }}
+                  />
+                </>
+              )}
 
               {visibleParticles.map((particle, index) => (
                 <motion.circle
@@ -208,6 +206,11 @@ export function WaterSampleVisualization({ reading }: WaterSampleVisualizationPr
             <path d="M349 152 327 426" stroke="#FFFFFF" strokeLinecap="round" strokeWidth="7" opacity="0.18" />
             <path d="M185 116c20-15 108-15 130 0" stroke="#FFFFFF" strokeLinecap="round" strokeWidth="5" opacity="0.34" />
           </svg>
+          {!hasValidReading && (
+            <p className="absolute bottom-5 left-1/2 w-full -translate-x-1/2 px-4 text-center text-sm font-bold text-slate-300">
+              Waiting for first sample
+            </p>
+          )}
     </motion.div>
   );
 }
@@ -272,8 +275,8 @@ function getSampleState(ntu: number, hasReading: boolean): SampleState {
       measureOpacity: 0.28,
       ring: "border-white/10",
       text: "bg-slate-500/20 text-slate-200 ring-slate-300/30",
-      opacity: 0.28,
-      particleCount: 2,
+      opacity: 0,
+      particleCount: 0,
       pulse: false,
     };
   }
