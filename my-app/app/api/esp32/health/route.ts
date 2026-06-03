@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getActiveSensorUserId } from "@/config/hydrowatch-admin";
 import { createUtcTimestamp } from "@/utils/time-format";
+import { HydrowatchDatabase } from "@/lib/supabase/browser";
 
 /**
  * Health Check Endpoint for ESP32
@@ -17,7 +18,7 @@ function getServerSupabaseClient() {
     throw new Error("Missing Supabase configuration");
   }
 
-  return createClient(url, key, {
+  return createClient<HydrowatchDatabase>(url, key, {
     auth: {
       persistSession: false,
       autoRefreshToken: false,
@@ -44,6 +45,10 @@ export async function GET() {
       throw healthError;
     }
 
+    const typedHealthData = healthData as Omit<HydrowatchDatabase["public"]["Tables"]["sensor_health"]["Row"], "id" | "updated_at"> & {
+      signal_strength_dbm?: number | null;
+    } | null;
+
     // Get latest reading
     const { data: latestReadings, error: readingError } = await supabase
       .from("water_readings")
@@ -54,7 +59,7 @@ export async function GET() {
 
     if (readingError) throw readingError;
 
-    const latestReading = latestReadings?.[0];
+    const latestReading = (latestReadings as HydrowatchDatabase["public"]["Tables"]["water_readings"]["Row"][] | null)?.[0];
     const lastReadingTime = latestReading?.created_at
       ? new Date(latestReading.created_at).getTime()
       : null;
@@ -63,18 +68,18 @@ export async function GET() {
       ? (currentTimeMs - lastReadingTime) / 1000
       : null;
 
-    const isHealthy = healthData?.sensor_status === "ONLINE" && secondsSinceLastReading !== null && secondsSinceLastReading <= 40;
+    const isHealthy = typedHealthData?.sensor_status === "ONLINE" && secondsSinceLastReading !== null && secondsSinceLastReading <= 40;
 
     return NextResponse.json({
       ok: true,
       timestamp: currentTime,
       sensorStatus: {
         healthy: isHealthy,
-        status: healthData?.sensor_status || "UNKNOWN",
+        status: typedHealthData?.sensor_status || "UNKNOWN",
         lastReadingAt: latestReading?.created_at || null,
         secondsSinceLastReading: secondsSinceLastReading || null,
-        consecutiveFailures: healthData?.consecutive_failures || 0,
-        signalStrength: healthData?.signal_strength_dbm || null,
+        consecutiveFailures: typedHealthData?.consecutive_failures || 0,
+        signalStrength: typedHealthData?.signal_strength_dbm || null,
       },
       latestReading: latestReading
         ? {
@@ -84,7 +89,7 @@ export async function GET() {
           }
         : null,
       recommendations:
-        isHealthy ? [] : generateRecommendations(healthData, secondsSinceLastReading),
+        isHealthy ? [] : generateRecommendations(typedHealthData, secondsSinceLastReading),
     });
   } catch (error) {
     console.error("[HydroWatch Health Check] Error", {
