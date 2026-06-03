@@ -69,6 +69,10 @@ export function useHydrowatchSystem(accessToken: string | null, userId: string |
         status: classifyTurbidity(reading.turbidity),
         prediction: prediction.label,
         predictionConfidence: prediction.confidence,
+        projectedNTU: prediction.projectedNTU,
+        predictionSlope: prediction.slope,
+        predictedCriticalAt: prediction.predictedCriticalAt,
+        minutesToCritical: prediction.minutesToCritical,
       };
     },
     [settings],
@@ -118,7 +122,7 @@ export function useHydrowatchSystem(accessToken: string | null, userId: string |
           id: crypto.randomUUID(),
           severity:
             prediction.label === "Critical Condition Expected" ? "Warning" : "Informational",
-          message: `${prediction.label} (${prediction.confidence}% confidence, projected ${prediction.projectedNTU} NTU)`,
+          message: formatPredictionMessage(prediction),
           timestamp: enriched.createdAt,
           category: "prediction",
         },
@@ -308,6 +312,9 @@ export function useHydrowatchSystem(accessToken: string | null, userId: string |
   }, [enrichReading]);
 
   const latest = readings.at(-1);
+  const acknowledgeAlert = useCallback((alertId: string) => {
+    setAlerts((prev) => prev.filter((alert) => alert.id !== alertId));
+  }, []);
   const isLive = useMemo(() => {
     if (!latest || !Number.isFinite(latest.turbidity)) return false;
     const ageSeconds = (liveClock - getUtcTimestampMs(latest.createdAt)) / 1000;
@@ -331,6 +338,7 @@ export function useHydrowatchSystem(accessToken: string | null, userId: string |
   );
 
   return {
+    acknowledgeAlert,
     alerts,
     healthScore,
     isLive,
@@ -366,4 +374,18 @@ function getLoadReadingsErrorMessage(error: unknown) {
 
 function isSupabaseErrorLike(error: unknown): error is SupabaseErrorLike {
   return typeof error === "object" && error !== null && ("code" in error || "message" in error);
+}
+
+function formatPredictionMessage(prediction: {
+  label: string;
+  confidence: number;
+  projectedNTU: number;
+  minutesToCritical: number | null;
+}) {
+  const etaSuffix =
+    prediction.minutesToCritical !== null
+      ? `, abnormal ETA ${prediction.minutesToCritical.toFixed(2)} min`
+      : "";
+
+  return `${prediction.label} (${prediction.confidence}% confidence, projected ${prediction.projectedNTU} NTU${etaSuffix})`;
 }

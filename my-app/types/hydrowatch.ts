@@ -13,6 +13,10 @@ export type WaterReading = {
   status: TurbidityStatus;
   prediction: PredictionLabel;
   predictionConfidence: number;
+  projectedNTU?: number;
+  predictionSlope?: number;
+  predictedCriticalAt?: string | null;
+  minutesToCritical?: number | null;
   createdAt: string;
 };
 
@@ -21,6 +25,8 @@ export type PredictionResult = {
   confidence: number;
   projectedNTU: number;
   slope: number;
+  predictedCriticalAt: string | null;
+  minutesToCritical: number | null;
 };
 
 export type SystemAlert = {

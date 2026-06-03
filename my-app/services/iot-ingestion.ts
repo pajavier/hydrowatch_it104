@@ -52,6 +52,13 @@ export function parseEsp32ReadingPayload(body: unknown): Esp32ReadingPayload {
     throw new Error("Payload must include a non-negative numeric turbidity value.");
   }
 
+  // Validate turbidity is within expected range (0-5 NTU for sensor, allow 50% margin)
+  if (turbidity > 7.5) {
+    throw new Error(
+      `Turbidity reading ${turbidity} NTU exceeds expected range. Possible sensor malfunction.`,
+    );
+  }
+
   if (createdAt !== undefined && typeof createdAt !== "string") {
     throw new Error("createdAt must be an ISO timestamp string when provided.");
   }
@@ -94,6 +101,9 @@ export async function ingestEsp32Reading(payload: Esp32ReadingPayload) {
     historyCount: history.length,
   });
 
+  // Update sensor health tracking
+  await updateSensorHealth(supabase, assignedUserId, "success");
+
   await storeDerivedOwnerData(toWaterReading(data as WaterReadingRecord), history);
   return data;
 }
@@ -133,6 +143,10 @@ async function storeDerivedOwnerData(reading: OwnerWaterReading, history: WaterR
     ...reading,
     prediction: prediction.label,
     predictionConfidence: prediction.confidence,
+    projectedNTU: prediction.projectedNTU,
+    predictionSlope: prediction.slope,
+    predictedCriticalAt: prediction.predictedCriticalAt,
+    minutesToCritical: prediction.minutesToCritical,
   };
   const generatedAlerts = evaluateAlerts(enrichedReading, history, ingestionSettings);
   const logBatch: SystemLog[] = [
@@ -146,7 +160,7 @@ async function storeDerivedOwnerData(reading: OwnerWaterReading, history: WaterR
     {
       id: crypto.randomUUID(),
       severity: prediction.label === "Critical Condition Expected" ? "Warning" : "Informational",
-      message: `${prediction.label} (${prediction.confidence}% confidence, projected ${prediction.projectedNTU} NTU)`,
+      message: formatPredictionMessage(prediction),
       timestamp: enrichedReading.createdAt,
       category: "prediction",
     },
@@ -277,4 +291,79 @@ function toWaterReading(row: WaterReadingRecord): OwnerWaterReading {
     predictionConfidence: 62,
     createdAt: row.created_at,
   };
+}
+
+function formatPredictionMessage(prediction: {
+  label: string;
+  confidence: number;
+  projectedNTU: number;
+  minutesToCritical: number | null;
+}) {
+  const etaSuffix =
+    prediction.minutesToCritical !== null
+      ? `, abnormal ETA ${prediction.minutesToCritical.toFixed(2)} min`
+      : "";
+
+  return `${prediction.label} (${prediction.confidence}% confidence, projected ${prediction.projectedNTU} NTU${etaSuffix})`;
+}
+
+async function updateSensorHealth(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  status: "success" | "failure",
+) {
+  const now = createUtcTimestamp();
+
+  try {
+    // First, try to update existing record
+    const { data: existing } = await supabase
+      .from("sensor_health")
+      .select("id")
+      .eq("user_id", userId)
+      .single();
+
+    if (existing) {
+      // Update existing record
+      const updateData = {
+        updated_at: now,
+        sensor_status: status === "success" ? "ONLINE" : "OFFLINE",
+        last_reading_at: now,
+        consecutive_failures: status === "success" ? 0 : (existing.consecutive_failures || 0) + 1,
+      };
+
+      const { error } = await supabase
+        .from("sensor_health")
+        .update(updateData)
+        .eq("user_id", userId);
+
+      if (error) {
+        console.error("[HydroWatch Ingestion] Failed to update sensor health", {
+          userId,
+          error: error.message,
+        });
+      }
+    } else {
+      // Create new record
+      const { error } = await supabase.from("sensor_health").insert({
+        user_id: userId,
+        last_reading_at: now,
+        last_successful_post_at: status === "success" ? now : null,
+        consecutive_failures: status === "success" ? 0 : 1,
+        sensor_status: status === "success" ? "ONLINE" : "OFFLINE",
+        updated_at: now,
+      });
+
+      if (error) {
+        console.error("[HydroWatch Ingestion] Failed to create sensor health record", {
+          userId,
+          error: error.message,
+        });
+      }
+    }
+  } catch (error) {
+    console.error("[HydroWatch Ingestion] Error updating sensor health", {
+      userId,
+      error: error instanceof Error ? error.message : error,
+    });
+  }
 }
