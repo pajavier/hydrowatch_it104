@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { ReactNode, useState } from "react";
 
-export type Screen = "dashboard" | "settings" | "logs";
+export type Screen = "dashboard" | "alerts" | "settings" | "logs";
 
 type NavbarProps = {
   activeScreen: Screen;
@@ -13,6 +13,7 @@ type NavbarProps = {
 
 const navItems: Array<{ icon: ReactNode; label: string; screen: Screen }> = [
   { icon: <DashboardIcon />, label: "Dashboard", screen: "dashboard" },
+  { icon: <AlertIcon />, label: "Alerts", screen: "alerts" },
   { icon: <LogsIcon />, label: "Logs", screen: "logs" },
   { icon: <SettingsIcon />, label: "Settings", screen: "settings" },
 ];
@@ -255,6 +256,20 @@ function LogsIcon() {
   return (
     <svg aria-hidden="true" className="h-5 w-5" fill="none" viewBox="0 0 24 24">
       <path d="M7 6h10M7 10h10M7 14h6M5 3h14a1 1 0 0 1 1 1v16l-3-2-3 2-3-2-3 2-3-2-3 2V4a1 1 0 0 1 1-1Z" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
+    </svg>
+  );
+}
+
+function AlertIcon() {
+  return (
+    <svg aria-hidden="true" className="h-5 w-5" fill="none" viewBox="0 0 24 24">
+      <path
+        d="M12 3 3 19h18L12 3Zm0 5v5m0 4h.01"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="2"
+      />
     </svg>
   );
 }

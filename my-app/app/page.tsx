@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Alerts } from "./components/Alerts";
 import { AppLayout } from "./components/AppLayout";
 import { Dashboard } from "./components/Dashboard";
 import { Logs } from "./components/Logs";
@@ -10,7 +11,7 @@ import { getSupabaseClient } from "@/utils/supabase/client";
 import { useHydrowatchSystem } from "@/hooks/useHydrowatchSystem";
 import { getAuthenticatedUserId } from "@/utils/auth-user";
 
-type Screen = "dashboard" | "settings" | "logs";
+type Screen = "dashboard" | "alerts" | "settings" | "logs";
 
 export default function App() {
   const [accessToken, setAccessToken] = useState<string | null>(null);
@@ -105,6 +106,7 @@ export default function App() {
       {currentScreen === "dashboard" && (
         <Dashboard
           accessToken={accessToken}
+          onAcknowledgeAlert={system.acknowledgeAlert}
           alerts={system.alerts}
           healthScore={system.healthScore}
           isLoadingReadings={system.isLoadingReadings}
@@ -114,6 +116,9 @@ export default function App() {
           uptimeHours={system.uptimeHours}
           waterQualityScore={system.waterQualityScore}
         />
+      )}
+      {currentScreen === "alerts" && (
+        <Alerts alerts={system.alerts} onAcknowledgeAlert={system.acknowledgeAlert} />
       )}
       {currentScreen === "settings" && (
         <Settings

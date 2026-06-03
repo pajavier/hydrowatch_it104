@@ -7,6 +7,17 @@ create table if not exists water_readings (
   created_at timestamptz not null default now()
 );
 
+create table if not exists sensor_health (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id) on delete cascade,
+  last_reading_at timestamptz,
+  last_successful_post_at timestamptz,
+  consecutive_failures int default 0,
+  sensor_status text default 'UNKNOWN' check (sensor_status in ('ONLINE', 'OFFLINE', 'UNKNOWN')),
+  signal_strength_dbm int,
+  updated_at timestamptz not null default now()
+);
+
 alter table water_readings
   add column if not exists user_id uuid references auth.users(id) on delete cascade;
 alter table water_readings
@@ -67,11 +78,13 @@ create index if not exists water_readings_user_created_at_idx on water_readings 
 create index if not exists alerts_user_created_at_idx on alerts (user_id, created_at);
 create index if not exists predictions_user_created_at_idx on predictions (user_id, created_at);
 create index if not exists system_logs_user_created_at_idx on system_logs (user_id, created_at);
+create index if not exists sensor_health_user_idx on sensor_health (user_id);
 
 alter table water_readings enable row level security;
 alter table alerts enable row level security;
 alter table predictions enable row level security;
 alter table system_logs enable row level security;
+alter table sensor_health enable row level security;
 
 drop policy if exists "Users can read their own water readings" on water_readings;
 create policy "Users can read their own water readings"
@@ -121,6 +134,17 @@ create policy "Users can insert their own system logs"
   on system_logs for insert
   with check (auth.uid() = user_id);
 
+drop policy if exists "Users can read their own sensor health" on sensor_health;
+create policy "Users can read their own sensor health"
+  on sensor_health for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can update their own sensor health" on sensor_health;
+create policy "Users can update their own sensor health"
+  on sensor_health for update
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
 do $$
 begin
   alter publication supabase_realtime add table water_readings;
@@ -145,6 +169,13 @@ end $$;
 do $$
 begin
   alter publication supabase_realtime add table system_logs;
+exception
+  when duplicate_object then null;
+end $$;
+
+do $$
+begin
+  alter publication supabase_realtime add table sensor_health;
 exception
   when duplicate_object then null;
 end $$;

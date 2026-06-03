@@ -9,6 +9,7 @@ type Props = {
   accessToken: string;
   readings: WaterReading[];
   alerts: SystemAlert[];
+  onAcknowledgeAlert: (alertId: string) => void;
   isLive: boolean;
   isLoadingReadings: boolean;
   readingsError: string | null;
@@ -21,6 +22,7 @@ export function Dashboard({
   accessToken,
   readings,
   alerts,
+  onAcknowledgeAlert,
   isLive,
   isLoadingReadings,
   readingsError,
@@ -35,6 +37,13 @@ export function Dashboard({
   const statusTone = latest?.status === "Very Cloudy" ? "critical" : latest?.status === "Cloudy" || latest?.status === "Slightly Cloudy" ? "warning" : "normal";
   const latestEvents = readings.slice(-5).reverse();
   const deviceStatus = hasValidLatestReading ? getDeviceStatus(latest!.createdAt, currentTime) : "OFFLINE";
+  const abnormalEta = latest
+    ? latest.predictedCriticalAt
+      ? `${formatManilaDateTime(latest.predictedCriticalAt)}`
+      : latest.prediction === "Critical Condition Expected"
+        ? "Now"
+        : "Not expected"
+    : "Pending";
 
   console.info("[HydroWatch Dashboard] render", {
     readingsLength: readings.length,
@@ -74,6 +83,7 @@ export function Dashboard({
           <>
             <WaterMonitoringStation
               accessToken={accessToken}
+              onAcknowledgeAlert={onAcknowledgeAlert}
               alerts={alerts}
               healthScore={healthScore}
               latestEvents={latestEvents}
@@ -89,6 +99,8 @@ export function Dashboard({
                   ? `Unable to load Supabase readings: ${readingsError}`
                   : "Waiting for ESP32 turbidity readings."
               }
+              projectedNtu="--"
+              abnormalEta="Pending"
               tone="normal"
               trend="Pending"
             />
@@ -99,6 +111,7 @@ export function Dashboard({
           <>
             <WaterMonitoringStation
               accessToken={accessToken}
+              onAcknowledgeAlert={onAcknowledgeAlert}
               alerts={alerts}
               healthScore={healthScore}
               latestEvents={latestEvents}
@@ -111,6 +124,8 @@ export function Dashboard({
             <PredictionAnalysis
               confidence={`${latest!.predictionConfidence}%`}
               forecastSummary={latest!.prediction}
+              projectedNtu={`${latest!.projectedNTU ?? latest!.turbidity} NTU`}
+              abnormalEta={abnormalEta}
               tone={latest!.prediction === "Critical Condition Expected" ? "critical" : latest!.prediction === "Rising Turbidity" ? "warning" : "normal"}
               trend={`${trend >= 0 ? "+" : ""}${trend.toFixed(2)} NTU`}
             />
@@ -124,6 +139,7 @@ export function Dashboard({
 
 function WaterMonitoringStation({
   accessToken,
+  onAcknowledgeAlert,
   alerts,
   healthScore,
   latestEvents,
@@ -133,6 +149,7 @@ function WaterMonitoringStation({
   waterQualityScore,
 }: {
   accessToken: string;
+  onAcknowledgeAlert: (alertId: string) => void;
   alerts: SystemAlert[];
   healthScore: number;
   latestEvents: WaterReading[];
@@ -177,7 +194,16 @@ function WaterMonitoringStation({
                 <p className="text-sm font-bold">{alert.severity} - {alert.title}</p>
                 <p className="text-xs text-slate-300">{alert.message}</p>
                 <p className="text-xs text-slate-400">NTU {alert.ntuValue} - {alert.action}</p>
-                <p className="mt-1 text-[11px] text-slate-500">{formatManilaTime(alert.timestamp)}</p>
+                <div className="mt-2 flex items-center justify-between gap-2">
+                  <p className="text-[11px] text-slate-500">{formatManilaTime(alert.timestamp)}</p>
+                  <button
+                    className="rounded-full border border-emerald-300/30 bg-emerald-500/15 px-3 py-1 text-[11px] font-bold text-emerald-100 transition hover:bg-emerald-500/25"
+                    onClick={() => onAcknowledgeAlert(alert.id)}
+                    type="button"
+                  >
+                    OK
+                  </button>
+                </div>
               </div>
             ))}
           </StationPanel>
@@ -217,13 +243,17 @@ function StationStat({ label, value }: { label: string; value: string }) {
 }
 
 function PredictionAnalysis({
+  abnormalEta,
   confidence,
   forecastSummary,
+  projectedNtu,
   tone,
   trend,
 }: {
+  abnormalEta: string;
   confidence: string;
   forecastSummary: string;
+  projectedNtu: string;
   tone: "normal" | "warning" | "critical";
   trend: string;
 }) {
@@ -239,10 +269,11 @@ function PredictionAnalysis({
         <span className={`text-sm font-bold ${accent}`}>{forecastSummary}</span>
       </div>
 
-      <div className="mt-4 grid gap-3 md:grid-cols-3">
-        <AnalysisStat label="Trend" value={trend} tone={tone} />
+      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <AnalysisStat label="Recent Delta" value={trend} tone={tone} />
         <AnalysisStat label="Confidence" value={confidence} tone={tone} />
-        <AnalysisStat label="Forecast Summary" value={forecastSummary} tone={tone} />
+        <AnalysisStat label="Projected NTU" value={projectedNtu} tone={tone} />
+        <AnalysisStat label="Abnormal ETA" value={abnormalEta} tone={tone} />
       </div>
     </section>
   );
@@ -350,5 +381,7 @@ function getDeviceStatus(lastReadingTimestamp: string, now = Date.now()) {
   const seconds =
     (now - getUtcTimestampMs(lastReadingTimestamp)) / 1000;
 
-  return seconds <= 15 ? "LIVE" : "OFFLINE";
+  // Allow 40 seconds of inactivity (8x the 5-second send interval) before marking OFFLINE
+  // This accounts for WiFi reconnection attempts and network delays
+  return seconds <= 40 ? "LIVE" : "OFFLINE";
 }
