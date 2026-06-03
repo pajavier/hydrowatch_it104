@@ -312,14 +312,13 @@ function formatPredictionMessage(prediction: {
 }
 
 async function updateSensorHealth(
-  supabase: ReturnType<typeof createClient<HydrowatchDatabase>>,
+  supabase: ReturnType<typeof getServerSupabaseClient>,
   userId: string,
   status: "success" | "failure",
 ) {
   const now = createUtcTimestamp();
 
   try {
-    // First, try to update existing record
     const { data: existing } = await supabase
       .from("sensor_health")
       .select("id,consecutive_failures")
@@ -329,7 +328,6 @@ async function updateSensorHealth(
     const typedExisting = existing as { id: string; consecutive_failures?: number } | null;
 
     if (typedExisting) {
-      // Update existing record
       const updateData = {
         updated_at: now,
         sensor_status: status === "success" ? "ONLINE" : "OFFLINE",
@@ -349,7 +347,6 @@ async function updateSensorHealth(
         });
       }
     } else {
-      // Create new record
       const { error } = await supabase.from("sensor_health").insert({
         user_id: userId,
         last_reading_at: now,
