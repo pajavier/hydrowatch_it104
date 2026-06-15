@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { AlertSeverity, PredictionLabel } from "@/types/hydrowatch";
 
-type HydrowatchDatabase = {
+export type HydrowatchDatabase = {
   public: {
     Tables: {
       water_readings: {
@@ -54,6 +54,27 @@ type HydrowatchDatabase = {
           created_at: string;
         };
         Update: Partial<HydrowatchDatabase["public"]["Tables"]["system_logs"]["Insert"]>;
+      };
+      sensor_health: {
+        Row: {
+          id: string;
+          user_id: string;
+          last_reading_at: string;
+          last_successful_post_at: string | null;
+          consecutive_failures: number;
+          sensor_status: "ONLINE" | "OFFLINE";
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          last_reading_at?: string;
+          last_successful_post_at?: string | null;
+          consecutive_failures?: number;
+          sensor_status?: "ONLINE" | "OFFLINE";
+          updated_at?: string;
+        };
+        Update: Partial<HydrowatchDatabase["public"]["Tables"]["sensor_health"]["Insert"]>;
       };
     };
     Views: Record<string, never>;

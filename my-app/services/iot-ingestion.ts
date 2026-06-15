@@ -1,7 +1,12 @@
 import { createClient } from "@supabase/supabase-js";
 import { getActiveSensorUserId } from "@/config/hydrowatch-admin";
 import { evaluateAlerts } from "@/services/alert-engine";
+<<<<<<< HEAD
 import { ContainerType, EngineSettings, LightCondition, SystemLog, WaterReading, WaterType } from "@/types/hydrowatch";
+=======
+import { EngineSettings, SystemLog, WaterReading } from "@/types/hydrowatch";
+import { HydrowatchDatabase } from "@/lib/supabase/browser";
+>>>>>>> 888e5aec13f0052060d85e14f93aedfe0679450a
 import { classifyTurbidity, predictTurbidity } from "@/utils/hydrowatch-analytics";
 import { createUtcTimestamp } from "@/utils/time-format";
 
@@ -59,7 +64,7 @@ function getServerSupabaseClient() {
     throw new Error("NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required for ESP32 ingestion.");
   }
 
-  return createClient(url, key, {
+  return createClient<HydrowatchDatabase>(url, key, {
     auth: {
       persistSession: false,
       autoRefreshToken: false,
@@ -131,8 +136,14 @@ export async function ingestEsp32Reading(payload: Esp32ReadingPayload) {
   }
 
   const history = await fetchAssignedUserReadingHistory(assignedUserId);
+  const readingData = {
+    user_id: assignedUserId,
+    turbidity: payload.turbidity,
+    created_at: createdAt,
+  };
   const { data, error } = await supabase
     .from("water_readings")
+<<<<<<< HEAD
     .insert({
       user_id: assignedUserId,
       turbidity: payload.turbidity,
@@ -144,23 +155,29 @@ export async function ingestEsp32Reading(payload: Esp32ReadingPayload) {
       monitoring_session_id: monitoring.session.id,
     })
     .select("id,user_id,turbidity,created_at,light_condition,water_type,container_type,water_volume_ml")
+=======
+    .insert(readingData as never)
+    .select("id,user_id,turbidity,created_at")
+>>>>>>> 888e5aec13f0052060d85e14f93aedfe0679450a
     .single();
 
   if (error) throw error;
 
+  const typedData = data as WaterReadingRecord | null;
+
   console.info("[HydroWatch Ingestion] ESP32 reading stored", {
     assignedUserId,
-    insertedReading: data ?? null,
-    insertedReadingId: data?.id ?? null,
-    insertedReadingIdType: typeof data?.id,
+    insertedReading: typedData ?? null,
+    insertedReadingId: typedData?.id ?? null,
+    insertedReadingIdType: typeof typedData?.id,
     historyCount: history.length,
   });
 
   // Update sensor health tracking
   await updateSensorHealth(supabase, assignedUserId, "success", payload);
 
-  await storeDerivedOwnerData(toWaterReading(data as WaterReadingRecord), history);
-  return data;
+  await storeDerivedOwnerData(toWaterReading(typedData as WaterReadingRecord), history);
+  return typedData;
 }
 
 async function fetchActiveMonitoringContext(
@@ -268,7 +285,7 @@ async function storeDerivedOwnerData(reading: OwnerWaterReading, history: WaterR
     confidence: prediction.confidence,
     projected_ntu: prediction.projectedNTU,
   };
-  let predictionResult = await supabase.from("predictions").insert(predictionPayload);
+  let predictionResult = await supabase.from("predictions").insert(predictionPayload as never);
 
   if (isUuidCastError(predictionResult.error)) {
     console.error("[HydroWatch Ingestion] predictions.reading_id rejected the water_readings.id value", {
@@ -285,7 +302,7 @@ async function storeDerivedOwnerData(reading: OwnerWaterReading, history: WaterR
       confidence: predictionPayload.confidence,
       projected_ntu: predictionPayload.projected_ntu,
     };
-    predictionResult = await supabase.from("predictions").insert(predictionWithoutReadingId);
+    predictionResult = await supabase.from("predictions").insert(predictionWithoutReadingId as never);
   }
 
   console.info("[HydroWatch Ingestion] Inserting derived rows", {
@@ -303,7 +320,7 @@ async function storeDerivedOwnerData(reading: OwnerWaterReading, history: WaterR
           message: alert.message,
           action: alert.action,
           created_at: alert.timestamp,
-        })),
+        })) as never,
       )
     : Promise.resolve({ data: null, error: null });
 
@@ -320,7 +337,7 @@ async function storeDerivedOwnerData(reading: OwnerWaterReading, history: WaterR
       category: log.category,
       message: log.message,
       created_at: log.timestamp,
-    })),
+    })) as never,
   );
 
   const resolvedAlertsResult = await alertsResult;
@@ -399,7 +416,11 @@ function formatPredictionMessage(prediction: {
 }
 
 async function updateSensorHealth(
+<<<<<<< HEAD
   supabase: ServerSupabaseClient,
+=======
+  supabase: ReturnType<typeof getServerSupabaseClient>,
+>>>>>>> 888e5aec13f0052060d85e14f93aedfe0679450a
   userId: string,
   status: "success" | "failure",
   payload?: Esp32ReadingPayload,
@@ -407,19 +428,24 @@ async function updateSensorHealth(
   const now = createUtcTimestamp();
 
   try {
-    // First, try to update existing record
     const { data: existing } = await supabase
       .from("sensor_health")
+<<<<<<< HEAD
       .select("id,consecutive_failures,last_successful_post_at")
+=======
+      .select("id,consecutive_failures")
+>>>>>>> 888e5aec13f0052060d85e14f93aedfe0679450a
       .eq("user_id", userId)
       .single();
 
-    if (existing) {
-      // Update existing record
+    const typedExisting = existing as { id: string; consecutive_failures?: number } | null;
+
+    if (typedExisting) {
       const updateData = {
         updated_at: now,
         sensor_status: status === "success" ? "ONLINE" : "OFFLINE",
         last_reading_at: now,
+<<<<<<< HEAD
         last_successful_post_at: status === "success" ? now : existing.last_successful_post_at,
         consecutive_failures: status === "success" ? 0 : (existing.consecutive_failures || 0) + 1,
         signal_strength_dbm: payload?.rssi,
@@ -430,11 +456,14 @@ async function updateSensorHealth(
         mac_address: payload?.macAddress,
         firmware_version: payload?.firmwareVersion,
         setup_mode: payload?.setupMode ?? false,
+=======
+        consecutive_failures: status === "success" ? 0 : (typedExisting.consecutive_failures || 0) + 1,
+>>>>>>> 888e5aec13f0052060d85e14f93aedfe0679450a
       };
 
       const { error } = await supabase
         .from("sensor_health")
-        .update(updateData)
+        .update(updateData as never)
         .eq("user_id", userId);
 
       if (error) {
@@ -444,7 +473,6 @@ async function updateSensorHealth(
         });
       }
     } else {
-      // Create new record
       const { error } = await supabase.from("sensor_health").insert({
         user_id: userId,
         last_reading_at: now,
@@ -460,7 +488,7 @@ async function updateSensorHealth(
         firmware_version: payload?.firmwareVersion,
         setup_mode: payload?.setupMode ?? false,
         updated_at: now,
-      });
+      } as never);
 
       if (error) {
         console.error("[HydroWatch Ingestion] Failed to create sensor health record", {
