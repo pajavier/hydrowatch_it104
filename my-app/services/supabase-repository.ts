@@ -40,10 +40,6 @@ export type NewWaterReadingInput = {
   userId: string;
 };
 
-type InsertableTable = {
-  insert: (values: unknown) => PromiseLike<unknown>;
-};
-
 type UserScope = {
   accessToken: string;
   userId: string;
@@ -69,15 +65,6 @@ type MonitoringSessionRow = {
   stopped_at: string | null;
   created_at: string;
 };
-
-function tableFor(
-  name: "water_readings" | "predictions" | "alerts" | "system_logs",
-  accessToken: string,
-) {
-  const client = getDataSupabaseClient(accessToken);
-  if (!client) return null;
-  return client.from(name) as unknown as InsertableTable;
-}
 
 function numberOrFallback(value: unknown, fallback: number) {
   const numeric = Number(value);
@@ -168,26 +155,30 @@ export async function fetchWaterReadings(scope: UserScope, limit = 150): Promise
     throw new Error("Supabase environment variables are not configured.");
   }
 
-  let result = await client
+  const initialResult = await client
     .from("water_readings")
     .select("id,user_id,turbidity,created_at,light_condition,water_type,container_type,water_volume_ml")
     .eq("user_id", scope.userId)
     .order("created_at", { ascending: true });
 
-  if (isMissingEnvironmentSnapshotColumnError(result.error)) {
-    const missingColumnError = result.error;
-    console.warn("[HydroWatch Supabase] Environment snapshot columns are missing; falling back to legacy water_readings shape", {
-      message: missingColumnError.message,
-      code: missingColumnError.code,
-      nextAction: "Run supabase/20260609_esp32_wifi_configuration.sql to store environment metadata with future readings.",
-    });
+  const result = isMissingEnvironmentSnapshotColumnError(initialResult.error)
+    ? await (async () => {
+      const missingColumnError = initialResult.error;
+      if (!missingColumnError) return initialResult;
 
-    result = await client
-      .from("water_readings")
-      .select("id,user_id,turbidity,created_at")
-      .eq("user_id", scope.userId)
-      .order("created_at", { ascending: true });
-  }
+      console.warn("[HydroWatch Supabase] Environment snapshot columns are missing; falling back to legacy water_readings shape", {
+        message: missingColumnError.message,
+        code: missingColumnError.code,
+        nextAction: "Run supabase/20260609_esp32_wifi_configuration.sql to store environment metadata with future readings.",
+      });
+
+      return client
+        .from("water_readings")
+        .select("id,user_id,turbidity,created_at")
+        .eq("user_id", scope.userId)
+        .order("created_at", { ascending: true });
+    })()
+    : initialResult;
 
   const { data, error } = result;
 
@@ -286,7 +277,7 @@ export async function insertEsp32WaterReading(input: NewWaterReadingInput) {
       user_id: input.userId,
       turbidity: input.turbidity,
       created_at: input.createdAt ?? createUtcTimestamp(),
-    } as never)
+    })
     .select("id,user_id,turbidity,created_at")
     .single();
 
@@ -326,7 +317,7 @@ export async function saveEnvironmentSettings(
         water_volume_ml: settings.waterVolumeMl ?? null,
         notes: settings.notes?.trim() ? settings.notes.trim() : null,
         updated_at: createUtcTimestamp(),
-      } as never,
+      },
       { onConflict: "user_id" },
     )
     .select("id,user_id,light_condition,water_type,container_type,water_volume_ml,notes,created_at,updated_at")
@@ -358,7 +349,7 @@ export async function startMonitoringSession(scope: UserScope): Promise<Monitori
   const now = createUtcTimestamp();
   await client
     .from("monitoring_sessions")
-    .update({ status: "stopped", stopped_at: now } as never)
+    .update({ status: "stopped", stopped_at: now })
     .eq("user_id", scope.userId)
     .eq("status", "active");
 
@@ -369,7 +360,7 @@ export async function startMonitoringSession(scope: UserScope): Promise<Monitori
       status: "active",
       started_at: now,
       created_at: now,
-    } as never)
+    })
     .select("id,user_id,status,started_at,stopped_at,created_at")
     .single();
 
@@ -384,7 +375,7 @@ export async function stopMonitoringSession(scope: UserScope): Promise<void> {
   const now = createUtcTimestamp();
   const { error } = await client
     .from("monitoring_sessions")
-    .update({ status: "stopped", stopped_at: now } as never)
+    .update({ status: "stopped", stopped_at: now })
     .eq("user_id", scope.userId)
     .eq("status", "active");
 
@@ -399,14 +390,14 @@ export async function insertPrediction(prediction: {
   projectedNTU: number;
   userId: string;
 }) {
-  const table = tableFor("predictions", prediction.accessToken);
-  if (!table) return;
+  const client = getDataSupabaseClient(prediction.accessToken);
+  if (!client) return;
   console.info("[HydroWatch Supabase] Inserting derived row", {
     destinationTable: "predictions",
     readingId: prediction.readingId,
     readingIdType: typeof prediction.readingId,
   });
-  await table.insert({
+  await client.from("predictions").insert({
     user_id: prediction.userId,
     reading_id: prediction.readingId,
     label: prediction.label,
@@ -416,14 +407,14 @@ export async function insertPrediction(prediction: {
 }
 
 export async function insertAlerts(alerts: SystemAlert[], scope: UserScope) {
-  const table = tableFor("alerts", scope.accessToken);
-  if (!table || alerts.length === 0) return;
+  const client = getDataSupabaseClient(scope.accessToken);
+  if (!client || alerts.length === 0) return;
   console.info("[HydroWatch Supabase] Inserting derived rows", {
     destinationTable: "alerts",
     count: alerts.length,
     hasReadingId: false,
   });
-  await table.insert(
+  await client.from("alerts").insert(
     alerts.map((alert) => ({
       id: alert.id,
       user_id: scope.userId,
@@ -437,14 +428,14 @@ export async function insertAlerts(alerts: SystemAlert[], scope: UserScope) {
 }
 
 export async function insertLogs(logs: SystemLog[], scope: UserScope) {
-  const table = tableFor("system_logs", scope.accessToken);
-  if (!table || logs.length === 0) return;
+  const client = getDataSupabaseClient(scope.accessToken);
+  if (!client || logs.length === 0) return;
   console.info("[HydroWatch Supabase] Inserting derived rows", {
     destinationTable: "system_logs",
     count: logs.length,
     hasReadingId: false,
   });
-  await table.insert(
+  await client.from("system_logs").insert(
     logs.map((log) => ({
       id: log.id,
       user_id: scope.userId,

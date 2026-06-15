@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getActiveSensorUserId } from "@/config/hydrowatch-admin";
 import { createUtcTimestamp } from "@/utils/time-format";
-import { HydrowatchDatabase } from "@/lib/supabase/browser";
+import { Database } from "@/types/database.types";
 
 /**
  * Health Check Endpoint for ESP32
@@ -18,7 +18,7 @@ function getServerSupabaseClient() {
     throw new Error("Missing Supabase configuration");
   }
 
-  return createClient<HydrowatchDatabase>(url, key, {
+  return createClient<Database>(url, key, {
     auth: {
       persistSession: false,
       autoRefreshToken: false,
@@ -45,7 +45,7 @@ export async function GET() {
       throw healthError;
     }
 
-    const typedHealthData = healthData as Omit<HydrowatchDatabase["public"]["Tables"]["sensor_health"]["Row"], "id" | "updated_at"> & {
+    const typedHealthData = healthData as Omit<Database["public"]["Tables"]["sensor_health"]["Row"], "id" | "updated_at"> & {
       signal_strength_dbm?: number | null;
     } | null;
 
@@ -59,7 +59,7 @@ export async function GET() {
 
     if (readingError) throw readingError;
 
-    const latestReading = (latestReadings as HydrowatchDatabase["public"]["Tables"]["water_readings"]["Row"][] | null)?.[0];
+    const latestReading = latestReadings?.[0];
     const lastReadingTime = latestReading?.created_at
       ? new Date(latestReading.created_at).getTime()
       : null;

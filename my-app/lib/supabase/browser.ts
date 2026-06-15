@@ -1,90 +1,9 @@
 import { createClient } from "@supabase/supabase-js";
-import { AlertSeverity, PredictionLabel } from "@/types/hydrowatch";
+import { Database } from "@/types/database.types";
 
-export type HydrowatchDatabase = {
-  public: {
-    Tables: {
-      water_readings: {
-        Row: {
-          id: string | number;
-          user_id: string;
-          turbidity: number | string;
-          created_at: string;
-        };
-        Insert: {
-          id?: string | number;
-          user_id: string;
-          turbidity: number;
-          created_at?: string;
-        };
-        Update: Partial<HydrowatchDatabase["public"]["Tables"]["water_readings"]["Insert"]>;
-      };
-      predictions: {
-        Row: Record<string, unknown>;
-        Insert: {
-          user_id: string;
-          reading_id: string | number;
-          label: PredictionLabel;
-          confidence: number;
-          projected_ntu: number;
-        };
-        Update: Partial<HydrowatchDatabase["public"]["Tables"]["predictions"]["Insert"]>;
-      };
-      alerts: {
-        Row: Record<string, unknown>;
-        Insert: {
-          id: string;
-          user_id: string;
-          severity: AlertSeverity;
-          type: "high_turbidity" | "rapid_increase" | "sensor_stability";
-          message: string;
-          action: string;
-          created_at: string;
-        };
-        Update: Partial<HydrowatchDatabase["public"]["Tables"]["alerts"]["Insert"]>;
-      };
-      system_logs: {
-        Row: Record<string, unknown>;
-        Insert: {
-          id: string;
-          user_id: string;
-          severity: AlertSeverity;
-          category: "reading" | "alert" | "prediction" | "system";
-          message: string;
-          created_at: string;
-        };
-        Update: Partial<HydrowatchDatabase["public"]["Tables"]["system_logs"]["Insert"]>;
-      };
-      sensor_health: {
-        Row: {
-          id: string;
-          user_id: string;
-          last_reading_at: string;
-          last_successful_post_at: string | null;
-          consecutive_failures: number;
-          sensor_status: "ONLINE" | "OFFLINE";
-          updated_at: string;
-        };
-        Insert: {
-          id?: string;
-          user_id: string;
-          last_reading_at?: string;
-          last_successful_post_at?: string | null;
-          consecutive_failures?: number;
-          sensor_status?: "ONLINE" | "OFFLINE";
-          updated_at?: string;
-        };
-        Update: Partial<HydrowatchDatabase["public"]["Tables"]["sensor_health"]["Insert"]>;
-      };
-    };
-    Views: Record<string, never>;
-    Functions: Record<string, never>;
-    Enums: Record<string, never>;
-    CompositeTypes: Record<string, never>;
-  };
-};
+export type HydrowatchDatabase = Database;
 
-let client: ReturnType<typeof createClient<HydrowatchDatabase>> | null = null;
+let client: ReturnType<typeof createClient<Database>> | null = null;
 let clientAccessToken: string | null = null;
 
 export function getDataSupabaseClient(accessToken: string) {
@@ -104,7 +23,7 @@ export function getDataSupabaseClient(accessToken: string) {
   }
 
   if (!client || clientAccessToken !== accessToken) {
-    client = createClient<HydrowatchDatabase>(url, key, {
+    client = createClient<Database>(url, key, {
       auth: {
         persistSession: false,
         autoRefreshToken: false,

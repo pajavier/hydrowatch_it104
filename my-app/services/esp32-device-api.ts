@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getActiveSensorUserId } from "@/config/hydrowatch-admin";
+import { Database } from "@/types/database.types";
 
 export type DeviceCommand = "status" | "wifi" | "restart" | "clear-wifi";
 
@@ -17,7 +18,7 @@ export function getServerSupabaseClient() {
     throw new Error("Missing Supabase configuration");
   }
 
-  return createClient(url, key, {
+  return createClient<Database>(url, key, {
     auth: {
       persistSession: false,
       autoRefreshToken: false,
