@@ -1,12 +1,8 @@
 import { createClient } from "@supabase/supabase-js";
 import { getActiveSensorUserId } from "@/config/hydrowatch-admin";
 import { evaluateAlerts } from "@/services/alert-engine";
-<<<<<<< HEAD
 import { ContainerType, EngineSettings, LightCondition, SystemLog, WaterReading, WaterType } from "@/types/hydrowatch";
-=======
-import { EngineSettings, SystemLog, WaterReading } from "@/types/hydrowatch";
 import { HydrowatchDatabase } from "@/lib/supabase/browser";
->>>>>>> 888e5aec13f0052060d85e14f93aedfe0679450a
 import { classifyTurbidity, predictTurbidity } from "@/utils/hydrowatch-analytics";
 import { createUtcTimestamp } from "@/utils/time-format";
 
@@ -136,14 +132,8 @@ export async function ingestEsp32Reading(payload: Esp32ReadingPayload) {
   }
 
   const history = await fetchAssignedUserReadingHistory(assignedUserId);
-  const readingData = {
-    user_id: assignedUserId,
-    turbidity: payload.turbidity,
-    created_at: createdAt,
-  };
   const { data, error } = await supabase
     .from("water_readings")
-<<<<<<< HEAD
     .insert({
       user_id: assignedUserId,
       turbidity: payload.turbidity,
@@ -155,10 +145,6 @@ export async function ingestEsp32Reading(payload: Esp32ReadingPayload) {
       monitoring_session_id: monitoring.session.id,
     })
     .select("id,user_id,turbidity,created_at,light_condition,water_type,container_type,water_volume_ml")
-=======
-    .insert(readingData as never)
-    .select("id,user_id,turbidity,created_at")
->>>>>>> 888e5aec13f0052060d85e14f93aedfe0679450a
     .single();
 
   if (error) throw error;
@@ -416,11 +402,7 @@ function formatPredictionMessage(prediction: {
 }
 
 async function updateSensorHealth(
-<<<<<<< HEAD
   supabase: ServerSupabaseClient,
-=======
-  supabase: ReturnType<typeof getServerSupabaseClient>,
->>>>>>> 888e5aec13f0052060d85e14f93aedfe0679450a
   userId: string,
   status: "success" | "failure",
   payload?: Esp32ReadingPayload,
@@ -430,24 +412,23 @@ async function updateSensorHealth(
   try {
     const { data: existing } = await supabase
       .from("sensor_health")
-<<<<<<< HEAD
       .select("id,consecutive_failures,last_successful_post_at")
-=======
-      .select("id,consecutive_failures")
->>>>>>> 888e5aec13f0052060d85e14f93aedfe0679450a
       .eq("user_id", userId)
       .single();
 
-    const typedExisting = existing as { id: string; consecutive_failures?: number } | null;
+    const typedExisting = existing as {
+      id: string;
+      consecutive_failures?: number;
+      last_successful_post_at?: string | null;
+    } | null;
 
     if (typedExisting) {
       const updateData = {
         updated_at: now,
         sensor_status: status === "success" ? "ONLINE" : "OFFLINE",
         last_reading_at: now,
-<<<<<<< HEAD
-        last_successful_post_at: status === "success" ? now : existing.last_successful_post_at,
-        consecutive_failures: status === "success" ? 0 : (existing.consecutive_failures || 0) + 1,
+        last_successful_post_at: status === "success" ? now : typedExisting.last_successful_post_at,
+        consecutive_failures: status === "success" ? 0 : (typedExisting.consecutive_failures || 0) + 1,
         signal_strength_dbm: payload?.rssi,
         current_ssid: payload?.ssid,
         current_ip_address: payload?.ipAddress,
@@ -456,9 +437,6 @@ async function updateSensorHealth(
         mac_address: payload?.macAddress,
         firmware_version: payload?.firmwareVersion,
         setup_mode: payload?.setupMode ?? false,
-=======
-        consecutive_failures: status === "success" ? 0 : (typedExisting.consecutive_failures || 0) + 1,
->>>>>>> 888e5aec13f0052060d85e14f93aedfe0679450a
       };
 
       const { error } = await supabase
