@@ -18,6 +18,10 @@ export type WaterReading = {
   predictedCriticalAt?: string | null;
   minutesToCritical?: number | null;
   createdAt: string;
+  lightCondition?: LightCondition | null;
+  waterType?: WaterType | null;
+  containerType?: ContainerType | null;
+  waterVolumeMl?: number | null;
 };
 
 export type PredictionResult = {
@@ -59,4 +63,43 @@ export type EngineSettings = {
   alertSensitivity: number;
   refreshIntervalMs: number;
   predictionAggressiveness: number;
+};
+
+export type LightCondition = "Present" | "Not Present";
+
+export type WaterType =
+  | "Distilled Water"
+  | "Tap Water"
+  | "River Water"
+  | "Lake Water"
+  | "Ground Water"
+  | "Other";
+
+export type ContainerType =
+  | "Glass"
+  | "Plastic"
+  | "Beaker"
+  | "Bottle"
+  | "Laboratory Tube"
+  | "Other";
+
+export type EnvironmentSettings = {
+  id?: string;
+  userId: string;
+  lightCondition: LightCondition;
+  waterType: WaterType;
+  containerType: ContainerType;
+  waterVolumeMl?: number | null;
+  notes?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type MonitoringSession = {
+  id: string;
+  userId: string;
+  status: "active" | "stopped";
+  startedAt: string;
+  stoppedAt?: string | null;
+  createdAt: string;
 };

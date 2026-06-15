@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getActiveSensorUserId } from "@/config/hydrowatch-admin";
 import { createUtcTimestamp } from "@/utils/time-format";

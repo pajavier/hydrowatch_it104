@@ -1,0 +1,27 @@
+import { NextRequest, NextResponse } from "next/server";
+import { proxyEsp32Request, requireHydrowatchUser } from "@/services/esp32-device-api";
+
+export async function GET(req: NextRequest) {
+  const auth = await requireHydrowatchUser(req);
+  if ("error" in auth) return auth.error;
+
+  return proxyEsp32Request("status");
+}
+
+export async function POST(req: NextRequest) {
+  const auth = await requireHydrowatchUser(req);
+  if ("error" in auth) return auth.error;
+
+  const body = await req.json().catch(() => null);
+  const ssid = typeof body?.ssid === "string" ? body.ssid.trim() : "";
+  const password = typeof body?.password === "string" ? body.password : "";
+
+  if (!ssid) {
+    return NextResponse.json({ error: "WiFi SSID is required." }, { status: 400 });
+  }
+
+  return proxyEsp32Request("wifi", {
+    method: "POST",
+    body: { ssid, password },
+  });
+}

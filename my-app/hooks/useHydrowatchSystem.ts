@@ -1,15 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { evaluateAlerts } from "@/services/alert-engine";
 import {
+  fetchActiveMonitoringSession,
+  fetchEnvironmentSettings,
   fetchSystemLogs,
   fetchWaterReadings,
   insertAlerts,
   insertLogs,
   insertPrediction,
+  saveEnvironmentSettings,
+  startMonitoringSession,
+  stopMonitoringSession,
   subscribeToWaterReadings,
   waterReadingFromRealtimePayload,
 } from "@/services/supabase-repository";
-import { EngineSettings, SystemAlert, SystemLog, WaterReading } from "@/types/hydrowatch";
+import { EngineSettings, EnvironmentSettings, MonitoringSession, SystemAlert, SystemLog, WaterReading } from "@/types/hydrowatch";
 import { classifyTurbidity, predictTurbidity } from "@/utils/hydrowatch-analytics";
 import { createUtcTimestamp, getUtcTimestampMs } from "@/utils/time-format";
 
@@ -33,6 +38,10 @@ export function useHydrowatchSystem(accessToken: string | null, userId: string |
   const [isRealtimeEnabled, setIsLive] = useState(true);
   const [isDatasetReady, setIsDatasetReady] = useState(false);
   const [isLoadingReadings, setIsLoadingReadings] = useState(true);
+  const [environmentSettings, setEnvironmentSettings] = useState<EnvironmentSettings | null>(null);
+  const [monitoringSession, setMonitoringSession] = useState<MonitoringSession | null>(null);
+  const [isLoadingMonitoring, setIsLoadingMonitoring] = useState(true);
+  const [monitoringError, setMonitoringError] = useState<string | null>(null);
   const [readingsError, setReadingsError] = useState<string | null>(null);
   const [liveClock, setLiveClock] = useState(() => Date.now());
   const readingsRef = useRef<WaterReading[]>([]);
@@ -180,17 +189,22 @@ export function useHydrowatchSystem(accessToken: string | null, userId: string |
         setReadings([]);
         setAlerts([]);
         setLogs([]);
+        setEnvironmentSettings(null);
+        setMonitoringSession(null);
+        setIsLoadingMonitoring(false);
         setIsDatasetReady(false);
         setIsLoadingReadings(false);
         return;
       }
 
       setIsLoadingReadings(true);
+      setIsLoadingMonitoring(true);
       try {
         const [databaseReadings, databaseLogs] = await Promise.all([
           fetchWaterReadings({ accessToken, userId }),
           fetchSystemLogs({ accessToken, userId }),
         ]);
+        const monitoringResult = await loadMonitoringState(accessToken, userId);
         console.info("[HydroWatch Hook] fetchWaterReadings returned", {
           queryResultCount: databaseReadings.length,
           currentAuthenticatedUser: userId,
@@ -228,6 +242,9 @@ export function useHydrowatchSystem(accessToken: string | null, userId: string |
 
         setAlerts(initialAlerts.slice(0, 40));
         setLogs(databaseLogs);
+        setEnvironmentSettings(monitoringResult.environmentSettings);
+        setMonitoringSession(monitoringResult.monitoringSession);
+        setMonitoringError(monitoringResult.error);
         setIsDatasetReady(true);
       } catch (error) {
         if (!isMounted) return;
@@ -249,9 +266,11 @@ export function useHydrowatchSystem(accessToken: string | null, userId: string |
           },
           ...prev,
         ]);
+        setMonitoringError(message);
       } finally {
         if (isMounted) {
           setIsLoadingReadings(false);
+          setIsLoadingMonitoring(false);
           console.info("[HydroWatch Hook] loadInitialReadings finished");
         }
       }
@@ -315,6 +334,59 @@ export function useHydrowatchSystem(accessToken: string | null, userId: string |
   const acknowledgeAlert = useCallback((alertId: string) => {
     setAlerts((prev) => prev.filter((alert) => alert.id !== alertId));
   }, []);
+  const saveEnvironment = useCallback(
+    async (nextSettings: Omit<EnvironmentSettings, "id" | "userId" | "createdAt" | "updatedAt">) => {
+      if (!accessToken || !userId) throw new Error("Authentication required.");
+
+      setMonitoringError(null);
+      try {
+        const saved = await saveEnvironmentSettings({ accessToken, userId }, nextSettings);
+        setEnvironmentSettings(saved);
+        return saved;
+      } catch (error) {
+        const message = getMonitoringSetupErrorMessage(error);
+        setMonitoringError(message);
+        throw new Error(message);
+      }
+    },
+    [accessToken, userId],
+  );
+  const startMonitoring = useCallback(async () => {
+    if (!accessToken || !userId) throw new Error("Authentication required.");
+    if (!environmentSettings) {
+      throw new Error("Configure environment settings before starting monitoring.");
+    }
+
+    setIsLoadingMonitoring(true);
+    setMonitoringError(null);
+    try {
+      const session = await startMonitoringSession({ accessToken, userId });
+      setMonitoringSession(session);
+      return session;
+    } catch (error) {
+      const message = getMonitoringSetupErrorMessage(error);
+      setMonitoringError(message);
+      throw new Error(message);
+    } finally {
+      setIsLoadingMonitoring(false);
+    }
+  }, [accessToken, environmentSettings, userId]);
+  const stopMonitoring = useCallback(async () => {
+    if (!accessToken || !userId) throw new Error("Authentication required.");
+
+    setIsLoadingMonitoring(true);
+    setMonitoringError(null);
+    try {
+      await stopMonitoringSession({ accessToken, userId });
+      setMonitoringSession(null);
+    } catch (error) {
+      const message = getMonitoringSetupErrorMessage(error);
+      setMonitoringError(message);
+      throw new Error(message);
+    } finally {
+      setIsLoadingMonitoring(false);
+    }
+  }, [accessToken, userId]);
   const isLive = useMemo(() => {
     if (!latest || !Number.isFinite(latest.turbidity)) return false;
     const ageSeconds = (liveClock - getUtcTimestampMs(latest.createdAt)) / 1000;
@@ -341,15 +413,22 @@ export function useHydrowatchSystem(accessToken: string | null, userId: string |
     acknowledgeAlert,
     alerts,
     healthScore,
+    environmentSettings,
     isLive,
+    isLoadingMonitoring,
     isLoadingReadings,
     latest,
     logs,
+    monitoringError,
+    monitoringSession,
     readingsError,
     readings,
     settings,
+    saveEnvironment,
     setIsLive,
     setSettings,
+    startMonitoring,
+    stopMonitoring,
     isDatasetReady,
     uptimeHours,
     waterQualityScore,
@@ -372,8 +451,70 @@ function getLoadReadingsErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Unknown error";
 }
 
+async function loadMonitoringState(accessToken: string, userId: string) {
+  const [environmentSettingsResult, monitoringSessionResult] = await Promise.allSettled([
+    fetchEnvironmentSettings({ accessToken, userId }),
+    fetchActiveMonitoringSession({ accessToken, userId }),
+  ]);
+  const failures = [environmentSettingsResult, monitoringSessionResult]
+    .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+    .map((result) => result.reason);
+
+  if (environmentSettingsResult.status === "fulfilled" && monitoringSessionResult.status === "fulfilled") {
+    return {
+      environmentSettings: environmentSettingsResult.value,
+      monitoringSession: monitoringSessionResult.value,
+      error: null,
+    };
+  }
+
+  const message = getMonitoringSetupErrorMessage(failures[0]);
+  console.warn("[HydroWatch Hook] monitoring setup unavailable", {
+    message,
+    failures: failures.map((failure) => summarizeError(failure)),
+  });
+
+  return {
+    environmentSettings: environmentSettingsResult.status === "fulfilled" ? environmentSettingsResult.value : null,
+    monitoringSession: monitoringSessionResult.status === "fulfilled" ? monitoringSessionResult.value : null,
+    error: message,
+  };
+}
+
+function getMonitoringSetupErrorMessage(error: unknown) {
+  if (isSupabaseErrorLike(error)) {
+    const message = typeof error.message === "string" ? error.message : "";
+    if (
+      error.code === "42P01" ||
+      error.code === "PGRST205" ||
+      message.includes("environment_settings") ||
+      message.includes("monitoring_sessions")
+    ) {
+      return "Supabase migration required: run supabase/20260609_esp32_wifi_configuration.sql, then reload the schema cache.";
+    }
+
+    return message || "Monitoring setup query failed.";
+  }
+
+  return error instanceof Error ? error.message : "Monitoring setup query failed.";
+}
+
 function isSupabaseErrorLike(error: unknown): error is SupabaseErrorLike {
   return typeof error === "object" && error !== null && ("code" in error || "message" in error);
+}
+
+function summarizeError(error: unknown) {
+  if (isSupabaseErrorLike(error)) {
+    return {
+      code: typeof error.code === "string" ? error.code : null,
+      message: typeof error.message === "string" ? error.message : "Supabase query failed.",
+    };
+  }
+
+  return {
+    code: null,
+    message: error instanceof Error ? error.message : "Unknown error",
+  };
 }
 
 function formatPredictionMessage(prediction: {

@@ -1,5 +1,15 @@
 import { getDataSupabaseClient } from "@/lib/supabase/browser";
-import { PredictionLabel, SystemAlert, SystemLog, WaterReading } from "@/types/hydrowatch";
+import {
+  ContainerType,
+  EnvironmentSettings,
+  LightCondition,
+  MonitoringSession,
+  PredictionLabel,
+  SystemAlert,
+  SystemLog,
+  WaterReading,
+  WaterType,
+} from "@/types/hydrowatch";
 import { classifyTurbidity } from "@/utils/hydrowatch-analytics";
 import { createUtcTimestamp } from "@/utils/time-format";
 
@@ -8,6 +18,10 @@ export type WaterReadingRow = {
   user_id: string;
   turbidity: number | string;
   created_at: string;
+  light_condition?: LightCondition | null;
+  water_type?: WaterType | null;
+  container_type?: ContainerType | null;
+  water_volume_ml?: number | string | null;
 };
 
 export type SystemLogRow = {
@@ -35,6 +49,27 @@ type UserScope = {
   userId: string;
 };
 
+type EnvironmentSettingsRow = {
+  id: string;
+  user_id: string;
+  light_condition: LightCondition;
+  water_type: WaterType;
+  container_type: ContainerType;
+  water_volume_ml: number | string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type MonitoringSessionRow = {
+  id: string;
+  user_id: string;
+  status: "active" | "stopped";
+  started_at: string;
+  stopped_at: string | null;
+  created_at: string;
+};
+
 function tableFor(
   name: "water_readings" | "predictions" | "alerts" | "system_logs",
   accessToken: string,
@@ -51,6 +86,10 @@ function numberOrFallback(value: unknown, fallback: number) {
 
 function toWaterReading(row: WaterReadingRow): WaterReading {
   const turbidity = numberOrFallback(row.turbidity, 0);
+  const waterVolumeMl =
+    row.water_volume_ml === null || row.water_volume_ml === undefined
+      ? null
+      : numberOrFallback(row.water_volume_ml, 0);
 
   if (!row.id || row.turbidity === undefined || !row.created_at) {
     console.warn("[HydroWatch Supabase] water_readings row has missing fields", {
@@ -68,6 +107,10 @@ function toWaterReading(row: WaterReadingRow): WaterReading {
     prediction: "Stable Trend",
     predictionConfidence: 62,
     createdAt: row.created_at,
+    lightCondition: row.light_condition ?? null,
+    waterType: row.water_type ?? null,
+    containerType: row.container_type ?? null,
+    waterVolumeMl,
   };
 }
 
@@ -81,10 +124,40 @@ function toSystemLog(row: SystemLogRow): SystemLog {
   };
 }
 
+function toEnvironmentSettings(row: EnvironmentSettingsRow): EnvironmentSettings {
+  const waterVolumeMl =
+    row.water_volume_ml === null || row.water_volume_ml === undefined
+      ? null
+      : numberOrFallback(row.water_volume_ml, 0);
+
+  return {
+    id: row.id,
+    userId: row.user_id,
+    lightCondition: row.light_condition,
+    waterType: row.water_type,
+    containerType: row.container_type,
+    waterVolumeMl,
+    notes: row.notes,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function toMonitoringSession(row: MonitoringSessionRow): MonitoringSession {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    status: row.status,
+    startedAt: row.started_at,
+    stoppedAt: row.stopped_at,
+    createdAt: row.created_at,
+  };
+}
+
 export async function fetchWaterReadings(scope: UserScope, limit = 150): Promise<WaterReading[]> {
   console.info("[HydroWatch Supabase] fetchWaterReadings started", {
     table: "water_readings",
-    expectedColumns: ["id", "user_id", "turbidity", "created_at"],
+    expectedColumns: ["id", "user_id", "turbidity", "created_at", "light_condition", "water_type", "container_type", "water_volume_ml"],
     limit,
     userId: scope.userId,
   });
@@ -95,11 +168,28 @@ export async function fetchWaterReadings(scope: UserScope, limit = 150): Promise
     throw new Error("Supabase environment variables are not configured.");
   }
 
-  const { data, error } = await client
+  let result = await client
     .from("water_readings")
-    .select("id,user_id,turbidity,created_at")
+    .select("id,user_id,turbidity,created_at,light_condition,water_type,container_type,water_volume_ml")
     .eq("user_id", scope.userId)
     .order("created_at", { ascending: true });
+
+  if (isMissingEnvironmentSnapshotColumnError(result.error)) {
+    const missingColumnError = result.error;
+    console.warn("[HydroWatch Supabase] Environment snapshot columns are missing; falling back to legacy water_readings shape", {
+      message: missingColumnError.message,
+      code: missingColumnError.code,
+      nextAction: "Run supabase/20260609_esp32_wifi_configuration.sql to store environment metadata with future readings.",
+    });
+
+    result = await client
+      .from("water_readings")
+      .select("id,user_id,turbidity,created_at")
+      .eq("user_id", scope.userId)
+      .order("created_at", { ascending: true });
+  }
+
+  const { data, error } = result;
 
   if (error) {
     console.error("[HydroWatch Supabase] fetchWaterReadings query error", {
@@ -126,6 +216,21 @@ export async function fetchWaterReadings(scope: UserScope, limit = 150): Promise
   });
 
   return readings;
+}
+
+function isMissingEnvironmentSnapshotColumnError(error: unknown): error is { code: "42703"; message: string } {
+  if (typeof error !== "object" || error === null || !("message" in error)) return false;
+  const message = typeof error.message === "string" ? error.message : "";
+  return (
+    "code" in error &&
+    error.code === "42703" &&
+    (
+      message.includes("water_readings.light_condition") ||
+      message.includes("water_readings.water_type") ||
+      message.includes("water_readings.container_type") ||
+      message.includes("water_readings.water_volume_ml")
+    )
+  );
 }
 
 export async function fetchSystemLogs(scope: UserScope, limit = 300): Promise<SystemLog[]> {
@@ -187,6 +292,103 @@ export async function insertEsp32WaterReading(input: NewWaterReadingInput) {
 
   if (error) throw error;
   return data ? toWaterReading(data as WaterReadingRow) : null;
+}
+
+export async function fetchEnvironmentSettings(scope: UserScope): Promise<EnvironmentSettings | null> {
+  const client = getDataSupabaseClient(scope.accessToken);
+  if (!client) throw new Error("Supabase environment variables are not configured.");
+
+  const { data, error } = await client
+    .from("environment_settings")
+    .select("id,user_id,light_condition,water_type,container_type,water_volume_ml,notes,created_at,updated_at")
+    .eq("user_id", scope.userId)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data ? toEnvironmentSettings(data as EnvironmentSettingsRow) : null;
+}
+
+export async function saveEnvironmentSettings(
+  scope: UserScope,
+  settings: Omit<EnvironmentSettings, "id" | "userId" | "createdAt" | "updatedAt">,
+): Promise<EnvironmentSettings> {
+  const client = getDataSupabaseClient(scope.accessToken);
+  if (!client) throw new Error("Supabase environment variables are not configured.");
+
+  const { data, error } = await client
+    .from("environment_settings")
+    .upsert(
+      {
+        user_id: scope.userId,
+        light_condition: settings.lightCondition,
+        water_type: settings.waterType,
+        container_type: settings.containerType,
+        water_volume_ml: settings.waterVolumeMl ?? null,
+        notes: settings.notes?.trim() ? settings.notes.trim() : null,
+        updated_at: createUtcTimestamp(),
+      } as never,
+      { onConflict: "user_id" },
+    )
+    .select("id,user_id,light_condition,water_type,container_type,water_volume_ml,notes,created_at,updated_at")
+    .single();
+
+  if (error) throw error;
+  return toEnvironmentSettings(data as EnvironmentSettingsRow);
+}
+
+export async function fetchActiveMonitoringSession(scope: UserScope): Promise<MonitoringSession | null> {
+  const client = getDataSupabaseClient(scope.accessToken);
+  if (!client) throw new Error("Supabase environment variables are not configured.");
+
+  const { data, error } = await client
+    .from("monitoring_sessions")
+    .select("id,user_id,status,started_at,stopped_at,created_at")
+    .eq("user_id", scope.userId)
+    .eq("status", "active")
+    .maybeSingle();
+
+  if (error) throw error;
+  return data ? toMonitoringSession(data as MonitoringSessionRow) : null;
+}
+
+export async function startMonitoringSession(scope: UserScope): Promise<MonitoringSession> {
+  const client = getDataSupabaseClient(scope.accessToken);
+  if (!client) throw new Error("Supabase environment variables are not configured.");
+
+  const now = createUtcTimestamp();
+  await client
+    .from("monitoring_sessions")
+    .update({ status: "stopped", stopped_at: now } as never)
+    .eq("user_id", scope.userId)
+    .eq("status", "active");
+
+  const { data, error } = await client
+    .from("monitoring_sessions")
+    .insert({
+      user_id: scope.userId,
+      status: "active",
+      started_at: now,
+      created_at: now,
+    } as never)
+    .select("id,user_id,status,started_at,stopped_at,created_at")
+    .single();
+
+  if (error) throw error;
+  return toMonitoringSession(data as MonitoringSessionRow);
+}
+
+export async function stopMonitoringSession(scope: UserScope): Promise<void> {
+  const client = getDataSupabaseClient(scope.accessToken);
+  if (!client) throw new Error("Supabase environment variables are not configured.");
+
+  const now = createUtcTimestamp();
+  const { error } = await client
+    .from("monitoring_sessions")
+    .update({ status: "stopped", stopped_at: now } as never)
+    .eq("user_id", scope.userId)
+    .eq("status", "active");
+
+  if (error) throw error;
 }
 
 export async function insertPrediction(prediction: {

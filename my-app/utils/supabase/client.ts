@@ -19,6 +19,8 @@ type AuthPayload = {
   user?: unknown;
 };
 
+type AuthChangeCallback = (event: "INITIAL_SESSION" | "SIGNED_IN" | "TOKEN_REFRESHED" | "SIGNED_OUT", session: StoredSession | null) => void;
+
 const SESSION_KEY = "hydrowatch.supabase.session";
 
 let supabaseClient: ReturnType<typeof createBrowserSupabaseClient> | null = null;
@@ -40,9 +42,51 @@ export function getSupabaseClient() {
 
 function createBrowserSupabaseClient(supabaseUrl: string, supabaseAnonKey: string) {
   const authUrl = `${supabaseUrl.replace(/\/$/, "")}/auth/v1`;
+  const listeners = new Set<AuthChangeCallback>();
   const headers = {
     apikey: supabaseAnonKey,
     "Content-Type": "application/json",
+  };
+  const notify = (event: Parameters<AuthChangeCallback>[0], session: StoredSession | null) => {
+    listeners.forEach((listener) => listener(event, session));
+  };
+  const refreshStoredSession = async () => {
+    const storedSession = readStoredSession();
+
+    if (!storedSession?.refresh_token) {
+      localStorage.removeItem(SESSION_KEY);
+      return null;
+    }
+
+    const response = await fetch(`${authUrl}/token?grant_type=refresh_token`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ refresh_token: storedSession.refresh_token }),
+    });
+    const payload = (await response.json().catch(() => null)) as (AuthPayload & {
+      error?: string;
+      error_description?: string;
+      msg?: string;
+    }) | null;
+
+    if (!response.ok || !payload?.access_token) {
+      localStorage.removeItem(SESSION_KEY);
+      notify("SIGNED_OUT", null);
+      return null;
+    }
+
+    const session = normalizeSession({
+      access_token: payload.access_token,
+      expires_at: payload.expires_at,
+      expires_in: payload.expires_in,
+      refresh_token: payload.refresh_token ?? storedSession.refresh_token,
+      token_type: payload.token_type,
+      user: payload.user ?? storedSession.user,
+    });
+
+    writeSession(session);
+    notify("TOKEN_REFRESHED", session);
+    return session;
   };
 
   return {
@@ -50,9 +94,42 @@ function createBrowserSupabaseClient(supabaseUrl: string, supabaseAnonKey: strin
       async getSession() {
         const session = readSession();
 
+        if (!session) {
+          const storedSession = readStoredSession();
+          if (isExpiredSession(storedSession) && storedSession?.refresh_token) {
+            return {
+              data: {
+                session: await refreshStoredSession(),
+              },
+            };
+          }
+        }
+
         return {
           data: {
             session,
+          },
+        };
+      },
+      async refreshSession() {
+        return {
+          data: {
+            session: await refreshStoredSession(),
+          },
+          error: null,
+        };
+      },
+      onAuthStateChange(callback: AuthChangeCallback) {
+        listeners.add(callback);
+        window.setTimeout(() => callback("INITIAL_SESSION", readSession()), 0);
+
+        return {
+          data: {
+            subscription: {
+              unsubscribe() {
+                listeners.delete(callback);
+              },
+            },
           },
         };
       },
@@ -85,6 +162,7 @@ function createBrowserSupabaseClient(supabaseUrl: string, supabaseAnonKey: strin
 
         const session = normalizeSession(payload);
         writeSession(session);
+        notify("SIGNED_IN", session);
 
         return {
           data: { session },
@@ -135,6 +213,7 @@ function createBrowserSupabaseClient(supabaseUrl: string, supabaseAnonKey: strin
 
         if (session) {
           writeSession(session);
+          notify("SIGNED_IN", session);
         }
 
         return {
@@ -159,6 +238,7 @@ function createBrowserSupabaseClient(supabaseUrl: string, supabaseAnonKey: strin
         }
 
         localStorage.removeItem(SESSION_KEY);
+        notify("SIGNED_OUT", null);
 
         return { error: null };
       },
@@ -183,31 +263,31 @@ function normalizeSession(payload: SignInResponse): StoredSession {
 }
 
 function readSession() {
-  if (typeof window === "undefined") {
+  const session = readStoredSession();
+
+  if (!session?.access_token || isExpiredSession(session)) {
     return null;
   }
+
+  return session;
+}
+
+function readStoredSession() {
+  if (typeof window === "undefined") return null;
 
   const rawSession = localStorage.getItem(SESSION_KEY);
-
-  if (!rawSession) {
-    return null;
-  }
+  if (!rawSession) return null;
 
   try {
-    const session = JSON.parse(rawSession) as StoredSession;
-    const isExpired =
-      session.expires_at && session.expires_at <= Math.floor(Date.now() / 1000);
-
-    if (!session.access_token || isExpired) {
-      localStorage.removeItem(SESSION_KEY);
-      return null;
-    }
-
-    return session;
+    return JSON.parse(rawSession) as StoredSession;
   } catch {
     localStorage.removeItem(SESSION_KEY);
     return null;
   }
+}
+
+function isExpiredSession(session: StoredSession | null) {
+  return Boolean(session?.expires_at && session.expires_at <= Math.floor(Date.now() / 1000));
 }
 
 function writeSession(session: StoredSession) {

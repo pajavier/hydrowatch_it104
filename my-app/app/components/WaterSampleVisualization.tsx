@@ -2,14 +2,15 @@
 
 import { useId, useMemo } from "react";
 import { motion } from "framer-motion";
-import { WaterReading } from "@/types/hydrowatch";
+import { TurbidityStatus, WaterReading } from "@/types/hydrowatch";
+import { classifyTurbidity } from "@/utils/hydrowatch-analytics";
 
 type WaterSampleVisualizationProps = {
   reading?: WaterReading;
 };
 
 export type SampleState = {
-  badge: "Safe" | "Moderate" | "Warning" | "Unsafe";
+  badge: TurbidityStatus;
   condition: string;
   water: string;
   surface: string;
@@ -220,6 +221,7 @@ export function getWaterSampleState(ntu: number, hasReading: boolean): SampleSta
 }
 
 function getSampleState(ntu: number, hasReading: boolean): SampleState {
+  const status = classifyTurbidity(ntu);
   const normalizedTurbidity = Math.max(0, Math.min(1, ntu / 15));
   const waterColor = interpolateColor(
     [
@@ -281,10 +283,10 @@ function getSampleState(ntu: number, hasReading: boolean): SampleState {
     };
   }
 
-  if (ntu <= 1) {
+  if (status === "Safe") {
     return {
       badge: "Safe",
-      condition: "Crystal clear water",
+      condition: "Safe water",
       water: waterColor,
       surface: surfaceColor,
       particle: particleColor,
@@ -300,10 +302,10 @@ function getSampleState(ntu: number, hasReading: boolean): SampleState {
     };
   }
 
-  if (ntu <= 5) {
+  if (status === "Slightly Cloudy") {
     return {
-      badge: "Moderate",
-      condition: "Slight haze",
+      badge: "Slightly Cloudy",
+      condition: "Slightly cloudy water",
       water: waterColor,
       surface: surfaceColor,
       particle: particleColor,
@@ -319,9 +321,9 @@ function getSampleState(ntu: number, hasReading: boolean): SampleState {
     };
   }
 
-  if (ntu <= 10) {
+  if (status === "Cloudy") {
     return {
-      badge: "Warning",
+      badge: "Cloudy",
       condition: "Cloudy water",
       water: waterColor,
       surface: surfaceColor,
@@ -339,8 +341,8 @@ function getSampleState(ntu: number, hasReading: boolean): SampleState {
   }
 
   return {
-    badge: "Unsafe",
-    condition: "Murky brown-gray water",
+    badge: "Very Cloudy",
+    condition: "Very cloudy water",
     water: waterColor,
     surface: surfaceColor,
     particle: particleColor,

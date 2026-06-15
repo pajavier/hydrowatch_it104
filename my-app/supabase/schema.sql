@@ -15,11 +15,55 @@ create table if not exists sensor_health (
   consecutive_failures int default 0,
   sensor_status text default 'UNKNOWN' check (sensor_status in ('ONLINE', 'OFFLINE', 'UNKNOWN')),
   signal_strength_dbm int,
+  current_ssid text,
+  current_ip_address text,
+  device_ip_address text,
+  device_id text,
+  mac_address text,
+  firmware_version text,
+  setup_mode boolean not null default false,
   updated_at timestamptz not null default now()
 );
 
+create table if not exists environment_settings (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  light_condition text not null check (light_condition in ('Present', 'Not Present')),
+  water_type text not null check (water_type in ('Distilled Water', 'Tap Water', 'River Water', 'Lake Water', 'Ground Water', 'Other')),
+  container_type text not null check (container_type in ('Glass', 'Plastic', 'Beaker', 'Bottle', 'Laboratory Tube', 'Other')),
+  water_volume_ml numeric,
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (user_id)
+);
+
+create table if not exists monitoring_sessions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  status text not null check (status in ('active', 'stopped')),
+  started_at timestamptz not null default now(),
+  stopped_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+alter table sensor_health
+  add column if not exists current_ssid text,
+  add column if not exists current_ip_address text,
+  add column if not exists device_ip_address text,
+  add column if not exists device_id text,
+  add column if not exists mac_address text,
+  add column if not exists firmware_version text,
+  add column if not exists setup_mode boolean not null default false;
+
 alter table water_readings
   add column if not exists user_id uuid references auth.users(id) on delete cascade;
+alter table water_readings
+  add column if not exists light_condition text,
+  add column if not exists water_type text,
+  add column if not exists container_type text,
+  add column if not exists water_volume_ml numeric,
+  add column if not exists monitoring_session_id uuid references monitoring_sessions(id) on delete set null;
 alter table water_readings
   alter column user_id set default auth.uid();
 
@@ -79,12 +123,19 @@ create index if not exists alerts_user_created_at_idx on alerts (user_id, create
 create index if not exists predictions_user_created_at_idx on predictions (user_id, created_at);
 create index if not exists system_logs_user_created_at_idx on system_logs (user_id, created_at);
 create index if not exists sensor_health_user_idx on sensor_health (user_id);
+create index if not exists environment_settings_user_idx on environment_settings (user_id);
+create index if not exists monitoring_sessions_user_status_idx on monitoring_sessions (user_id, status);
+create unique index if not exists monitoring_sessions_one_active_user_idx
+  on monitoring_sessions (user_id)
+  where status = 'active';
 
 alter table water_readings enable row level security;
 alter table alerts enable row level security;
 alter table predictions enable row level security;
 alter table system_logs enable row level security;
 alter table sensor_health enable row level security;
+alter table environment_settings enable row level security;
+alter table monitoring_sessions enable row level security;
 
 drop policy if exists "Users can read their own water readings" on water_readings;
 create policy "Users can read their own water readings"
@@ -145,9 +196,48 @@ create policy "Users can update their own sensor health"
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
 
+drop policy if exists "Users can read their own environment settings" on environment_settings;
+create policy "Users can read their own environment settings"
+  on environment_settings for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert their own environment settings" on environment_settings;
+create policy "Users can insert their own environment settings"
+  on environment_settings for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Users can update their own environment settings" on environment_settings;
+create policy "Users can update their own environment settings"
+  on environment_settings for update
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Users can read their own monitoring sessions" on monitoring_sessions;
+create policy "Users can read their own monitoring sessions"
+  on monitoring_sessions for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert their own monitoring sessions" on monitoring_sessions;
+create policy "Users can insert their own monitoring sessions"
+  on monitoring_sessions for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Users can update their own monitoring sessions" on monitoring_sessions;
+create policy "Users can update their own monitoring sessions"
+  on monitoring_sessions for update
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
 do $$
 begin
   alter publication supabase_realtime add table water_readings;
+exception
+  when duplicate_object then null;
+end $$;
+
+do $$
+begin
+  alter publication supabase_realtime add table monitoring_sessions;
 exception
   when duplicate_object then null;
 end $$;

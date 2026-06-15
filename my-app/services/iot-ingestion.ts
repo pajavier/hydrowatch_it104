@@ -1,13 +1,20 @@
 import { createClient } from "@supabase/supabase-js";
 import { getActiveSensorUserId } from "@/config/hydrowatch-admin";
 import { evaluateAlerts } from "@/services/alert-engine";
-import { EngineSettings, SystemLog, WaterReading } from "@/types/hydrowatch";
+import { ContainerType, EngineSettings, LightCondition, SystemLog, WaterReading, WaterType } from "@/types/hydrowatch";
 import { classifyTurbidity, predictTurbidity } from "@/utils/hydrowatch-analytics";
 import { createUtcTimestamp } from "@/utils/time-format";
 
 export type Esp32ReadingPayload = {
   turbidity: number;
   createdAt?: string;
+  deviceId?: string;
+  firmwareVersion?: string;
+  macAddress?: string;
+  ipAddress?: string;
+  ssid?: string;
+  rssi?: number;
+  setupMode?: boolean;
 };
 
 const ingestionSettings: EngineSettings = {
@@ -22,10 +29,26 @@ type WaterReadingRecord = {
   id: string | number;
   turbidity: number | string;
   user_id: string;
+  light_condition?: LightCondition | null;
+  water_type?: WaterType | null;
+  container_type?: ContainerType | null;
+  water_volume_ml?: number | string | null;
 };
 
 type OwnerWaterReading = WaterReading & {
   userId: string;
+};
+
+type ActiveMonitoringContext = {
+  environment: {
+    light_condition: LightCondition;
+    water_type: WaterType;
+    container_type: ContainerType;
+    water_volume_ml: number | string | null;
+  };
+  session: {
+    id: string;
+  };
 };
 
 function getServerSupabaseClient() {
@@ -47,6 +70,7 @@ function getServerSupabaseClient() {
 export function parseEsp32ReadingPayload(body: unknown): Esp32ReadingPayload {
   const turbidity = Number((body as { turbidity?: unknown } | null)?.turbidity);
   const createdAt = (body as { createdAt?: unknown } | null)?.createdAt;
+  const source = body as Record<string, unknown> | null;
 
   if (!Number.isFinite(turbidity) || turbidity < 0) {
     throw new Error("Payload must include a non-negative numeric turbidity value.");
@@ -66,8 +90,17 @@ export function parseEsp32ReadingPayload(body: unknown): Esp32ReadingPayload {
   return {
     turbidity,
     createdAt,
+    deviceId: getOptionalString(source, "deviceId"),
+    firmwareVersion: getOptionalString(source, "firmwareVersion"),
+    macAddress: getOptionalString(source, "macAddress"),
+    ipAddress: getOptionalString(source, "ipAddress"),
+    ssid: getOptionalString(source, "ssid"),
+    rssi: getOptionalNumber(source, "rssi"),
+    setupMode: typeof source?.setupMode === "boolean" ? source.setupMode : undefined,
   };
 }
+
+type ServerSupabaseClient = ReturnType<typeof getServerSupabaseClient>;
 
 export async function ingestEsp32Reading(payload: Esp32ReadingPayload) {
   const supabase = getServerSupabaseClient();
@@ -80,6 +113,23 @@ export async function ingestEsp32Reading(payload: Esp32ReadingPayload) {
     createdAt,
   });
 
+  const monitoring = await fetchActiveMonitoringContext(supabase, assignedUserId);
+  if (!monitoring) {
+    console.info("[HydroWatch Ingestion] Reading ignored because monitoring is stopped or environment is not configured", {
+      assignedUserId,
+      turbidity: payload.turbidity,
+      createdAt,
+    });
+    await updateSensorHealth(supabase, assignedUserId, "success", payload);
+    return {
+      stored: false,
+      ignored: true,
+      reason: "Monitoring is stopped or environment settings are not configured.",
+      turbidity: payload.turbidity,
+      created_at: createdAt,
+    };
+  }
+
   const history = await fetchAssignedUserReadingHistory(assignedUserId);
   const { data, error } = await supabase
     .from("water_readings")
@@ -87,8 +137,13 @@ export async function ingestEsp32Reading(payload: Esp32ReadingPayload) {
       user_id: assignedUserId,
       turbidity: payload.turbidity,
       created_at: createdAt,
+      light_condition: monitoring.environment.light_condition,
+      water_type: monitoring.environment.water_type,
+      container_type: monitoring.environment.container_type,
+      water_volume_ml: monitoring.environment.water_volume_ml,
+      monitoring_session_id: monitoring.session.id,
     })
-    .select("id,user_id,turbidity,created_at")
+    .select("id,user_id,turbidity,created_at,light_condition,water_type,container_type,water_volume_ml")
     .single();
 
   if (error) throw error;
@@ -102,10 +157,38 @@ export async function ingestEsp32Reading(payload: Esp32ReadingPayload) {
   });
 
   // Update sensor health tracking
-  await updateSensorHealth(supabase, assignedUserId, "success");
+  await updateSensorHealth(supabase, assignedUserId, "success", payload);
 
   await storeDerivedOwnerData(toWaterReading(data as WaterReadingRecord), history);
   return data;
+}
+
+async function fetchActiveMonitoringContext(
+  supabase: ServerSupabaseClient,
+  userId: string,
+): Promise<ActiveMonitoringContext | null> {
+  const [environmentResult, sessionResult] = await Promise.all([
+    supabase
+      .from("environment_settings")
+      .select("light_condition,water_type,container_type,water_volume_ml")
+      .eq("user_id", userId)
+      .maybeSingle(),
+    supabase
+      .from("monitoring_sessions")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("status", "active")
+      .maybeSingle(),
+  ]);
+
+  if (environmentResult.error) throw environmentResult.error;
+  if (sessionResult.error) throw sessionResult.error;
+  if (!environmentResult.data || !sessionResult.data) return null;
+
+  return {
+    environment: environmentResult.data as ActiveMonitoringContext["environment"],
+    session: sessionResult.data as ActiveMonitoringContext["session"],
+  };
 }
 
 async function fetchAssignedUserReadingHistory(userId: string) {
@@ -281,6 +364,10 @@ function isUuidCastError(error: unknown) {
 
 function toWaterReading(row: WaterReadingRecord): OwnerWaterReading {
   const turbidity = Number(row.turbidity);
+  const waterVolumeMl =
+    row.water_volume_ml === null || row.water_volume_ml === undefined
+      ? null
+      : Number(row.water_volume_ml);
 
   return {
     id: row.id,
@@ -290,6 +377,10 @@ function toWaterReading(row: WaterReadingRecord): OwnerWaterReading {
     prediction: "Stable Trend",
     predictionConfidence: 62,
     createdAt: row.created_at,
+    lightCondition: row.light_condition ?? null,
+    waterType: row.water_type ?? null,
+    containerType: row.container_type ?? null,
+    waterVolumeMl: Number.isFinite(waterVolumeMl) ? waterVolumeMl : null,
   };
 }
 
@@ -308,9 +399,10 @@ function formatPredictionMessage(prediction: {
 }
 
 async function updateSensorHealth(
-  supabase: ReturnType<typeof createClient>,
+  supabase: ServerSupabaseClient,
   userId: string,
   status: "success" | "failure",
+  payload?: Esp32ReadingPayload,
 ) {
   const now = createUtcTimestamp();
 
@@ -318,7 +410,7 @@ async function updateSensorHealth(
     // First, try to update existing record
     const { data: existing } = await supabase
       .from("sensor_health")
-      .select("id")
+      .select("id,consecutive_failures,last_successful_post_at")
       .eq("user_id", userId)
       .single();
 
@@ -328,7 +420,16 @@ async function updateSensorHealth(
         updated_at: now,
         sensor_status: status === "success" ? "ONLINE" : "OFFLINE",
         last_reading_at: now,
+        last_successful_post_at: status === "success" ? now : existing.last_successful_post_at,
         consecutive_failures: status === "success" ? 0 : (existing.consecutive_failures || 0) + 1,
+        signal_strength_dbm: payload?.rssi,
+        current_ssid: payload?.ssid,
+        current_ip_address: payload?.ipAddress,
+        device_ip_address: payload?.ipAddress,
+        device_id: payload?.deviceId,
+        mac_address: payload?.macAddress,
+        firmware_version: payload?.firmwareVersion,
+        setup_mode: payload?.setupMode ?? false,
       };
 
       const { error } = await supabase
@@ -350,6 +451,14 @@ async function updateSensorHealth(
         last_successful_post_at: status === "success" ? now : null,
         consecutive_failures: status === "success" ? 0 : 1,
         sensor_status: status === "success" ? "ONLINE" : "OFFLINE",
+        signal_strength_dbm: payload?.rssi,
+        current_ssid: payload?.ssid,
+        current_ip_address: payload?.ipAddress,
+        device_ip_address: payload?.ipAddress,
+        device_id: payload?.deviceId,
+        mac_address: payload?.macAddress,
+        firmware_version: payload?.firmwareVersion,
+        setup_mode: payload?.setupMode ?? false,
         updated_at: now,
       });
 
@@ -366,4 +475,14 @@ async function updateSensorHealth(
       error: error instanceof Error ? error.message : error,
     });
   }
+}
+
+function getOptionalString(source: Record<string, unknown> | null, key: string) {
+  const value = source?.[key];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function getOptionalNumber(source: Record<string, unknown> | null, key: string) {
+  const value = Number(source?.[key]);
+  return Number.isFinite(value) ? value : undefined;
 }

@@ -37,6 +37,8 @@ export function predictTurbidity(
   const { intercept, rSquared, slope } = linearRegression(points);
   const latestPoint = points.at(-1);
   const latestTurbidity = latest?.turbidity ?? 0;
+  const latestTimestampMs = latest ? getUtcTimestampMs(latest.createdAt) : NaN;
+  const hasValidLatestTimestamp = Number.isFinite(latestTimestampMs);
 
   if (!latestPoint) {
     return {
@@ -65,9 +67,11 @@ export function predictTurbidity(
         : null;
   const predictedCriticalAt =
     currentReadingIsCritical
-      ? latest?.createdAt ?? null
+      ? hasValidLatestTimestamp
+        ? latest?.createdAt ?? null
+        : null
       : minutesToCritical !== null && latest
-        ? new Date(getUtcTimestampMs(latest.createdAt) + minutesToCritical * 60 * 1000).toISOString()
+        ? toIsoTimestampOrNull(latestTimestampMs + minutesToCritical * 60 * 1000)
         : null;
 
   const confidence = computePredictionConfidence({
@@ -118,6 +122,25 @@ export function anomalyScore(values: number[]) {
   const stdDev = Math.sqrt(variance);
   const latest = values.at(-1) ?? mean;
   return stdDev === 0 ? 0 : Math.abs((latest - mean) / stdDev);
+}
+
+export function analyzeTurbidityRegression(readings: WaterReading[]) {
+  if (readings.length === 0) {
+    return {
+      intercept: 0,
+      points: [],
+      rSquared: 1,
+      slope: 0,
+    };
+  }
+
+  const { points } = toRegressionWindow(readings);
+  const regression = linearRegression(points);
+
+  return {
+    ...regression,
+    points,
+  };
 }
 
 function computePredictionConfidence({
@@ -201,4 +224,11 @@ function toRegressionWindow(readings: WaterReading[]) {
     averageStepMinutes,
     points,
   };
+}
+
+function toIsoTimestampOrNull(timestampMs: number) {
+  if (!Number.isFinite(timestampMs)) return null;
+
+  const date = new Date(timestampMs);
+  return Number.isFinite(date.getTime()) ? date.toISOString() : null;
 }
