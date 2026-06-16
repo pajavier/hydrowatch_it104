@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { SystemLog } from "@/types/hydrowatch";
 import { createUtcTimestamp, formatManilaDateInput, formatManilaDateTime } from "@/utils/time-format";
-import { motion } from "framer-motion";
+import { motion, type Variants } from "framer-motion";
 
 type LogsProps = {
   logs: SystemLog[];
@@ -14,7 +14,7 @@ export function Logs({ logs }: LogsProps) {
   const [severity, setSeverity] = useState<"all" | "Critical" | "Warning" | "Informational">("all");
   const [date, setDate] = useState("");
 
-  const containerVariants = {
+  const containerVariants: Variants = {
     hidden: { opacity: 0 },
     show: {
       opacity: 1,
@@ -22,9 +22,9 @@ export function Logs({ logs }: LogsProps) {
     }
   };
 
-  const itemVariants = {
+  const itemVariants: Variants = {
     hidden: { opacity: 0, y: 20 },
-    show: { opacity: 1, y: 0, transition: { duration: 0.6, ease: [0.16, 1, 0.3, 1] } }
+    show: { opacity: 1, y: 0, transition: { duration: 0.6, ease: "easeOut" } }
   };
 
   const filtered = useMemo(

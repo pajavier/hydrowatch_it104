@@ -2,14 +2,14 @@
 
 import { SystemAlert } from "@/types/hydrowatch";
 import { formatManilaDateTime, formatManilaTime } from "@/utils/time-format";
-import { motion } from "framer-motion";
+import { motion, type Variants } from "framer-motion";
 
 type AlertsProps = {
   alerts: SystemAlert[];
   onAcknowledgeAlert: (alertId: string) => void;
 };
 
-const containerVariants = {
+const containerVariants: Variants = {
   hidden: { opacity: 0 },
   show: {
     opacity: 1,
@@ -17,12 +17,12 @@ const containerVariants = {
   }
 };
 
-const itemVariants = {
+const itemVariants: Variants = {
   hidden: { opacity: 0, y: 20 },
-  show: { opacity: 1, y: 0, transition: { duration: 0.6, ease: [0.16, 1, 0.3, 1] } }
+  show: { opacity: 1, y: 0, transition: { duration: 0.6, ease: "easeOut" } }
 };
 
-export function Alerts({ alerts, onAcknowledgeAlert }: AlertsProps) {
+export function Alerts({ alerts = [], onAcknowledgeAlert }: AlertsProps) {
   const criticalAlerts = alerts.filter((alert) => alert.severity === "Critical");
   const warningAlerts = alerts.filter((alert) => alert.severity === "Warning");
   const informationalAlerts = alerts.filter((alert) => alert.severity === "Informational");
@@ -107,7 +107,7 @@ export function Alerts({ alerts, onAcknowledgeAlert }: AlertsProps) {
                           {alert.severity}
                         </span>
                         <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
-                          {alert.type.replaceAll("_", " ")}
+                          {alert.type ? String(alert.type).replace(/_/g, " ") : "UNKNOWN"}
                         </span>
                       </div>
                       <h4 className="mt-3 text-lg font-extrabold text-white">{alert.title}</h4>
@@ -116,7 +116,7 @@ export function Alerts({ alerts, onAcknowledgeAlert }: AlertsProps) {
                     </div>
 
                     <div className="grid shrink-0 gap-2 sm:grid-cols-2 lg:w-[240px] lg:grid-cols-1">
-                      <AlertDetail label="NTU Level" tone={tone.detail} value={`${alert.ntuValue} NTU`} />
+                      <AlertDetail label="NTU Level" tone={tone.detail} value={`${alert.ntuValue ?? "--"} NTU`} />
                       <AlertDetail
                         label="Detected"
                         tone={tone.detail}

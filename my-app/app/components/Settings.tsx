@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { ContainerType, EngineSettings, EnvironmentSettings, LightCondition, WaterType } from "@/types/hydrowatch";
-import { motion } from "framer-motion";
+import { motion, type Variants } from "framer-motion";
 
 type SettingsProps = {
   accessToken: string;
@@ -46,7 +46,7 @@ const lightConditionOptions: LightCondition[] = ["Present", "Not Present"];
 const waterTypeOptions: WaterType[] = ["Distilled Water", "Tap Water", "River Water", "Lake Water", "Ground Water", "Other"];
 const containerTypeOptions: ContainerType[] = ["Glass", "Plastic", "Beaker", "Bottle", "Laboratory Tube", "Other"];
 
-const containerVariants = {
+const containerVariants: Variants = {
   hidden: { opacity: 0 },
   show: {
     opacity: 1,
@@ -54,9 +54,9 @@ const containerVariants = {
   }
 };
 
-const itemVariants = {
+const itemVariants: Variants = {
   hidden: { opacity: 0, y: 20 },
-  show: { opacity: 1, y: 0, transition: { duration: 0.6, ease: [0.16, 1, 0.3, 1] } }
+  show: { opacity: 1, y: 0, transition: { duration: 0.6, ease: "easeOut" } }
 };
 
 export function Settings({ accessToken, environmentSettings, settings, onSave, onSaveEnvironment }: SettingsProps) {

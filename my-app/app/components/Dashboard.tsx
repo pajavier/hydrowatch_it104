@@ -5,7 +5,7 @@ import { EnvironmentSettings, MonitoringSession, SystemAlert, WaterReading } fro
 import { analyzeTurbidityRegression } from "@/utils/hydrowatch-analytics";
 import { formatManilaDateTime, formatManilaTime, getUtcTimestampMs } from "@/utils/time-format";
 import { getWaterSampleState, WaterSampleVisualization } from "./WaterSampleVisualization";
-import { motion } from "framer-motion";
+import { motion, type Variants } from "framer-motion";
 
 type Props = {
   accessToken: string;
@@ -27,7 +27,7 @@ type Props = {
   uptimeHours: string;
 };
 
-const containerVariants = {
+const containerVariants: Variants = {
   hidden: { opacity: 0 },
   show: {
     opacity: 1,
@@ -35,9 +35,9 @@ const containerVariants = {
   }
 };
 
-const itemVariants = {
+const itemVariants: Variants = {
   hidden: { opacity: 0, y: 20 },
-  show: { opacity: 1, y: 0, transition: { duration: 0.6, ease: [0.16, 1, 0.3, 1] } }
+  show: { opacity: 1, y: 0, transition: { duration: 0.6, ease: "easeOut" } }
 };
 
 export function Dashboard({
