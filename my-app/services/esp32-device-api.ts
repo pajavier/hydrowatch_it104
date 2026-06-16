@@ -26,19 +26,35 @@ export function getServerSupabaseClient() {
   });
 }
 
+function getServerAuthClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!url || !key) {
+    throw new Error("Missing Supabase auth configuration");
+  }
+
+  return createClient<Database>(url, key, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
+}
+
 export async function requireHydrowatchUser(req: NextRequest) {
   const token = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
   if (!token) {
     return { error: NextResponse.json({ error: "Authentication required" }, { status: 401 }) };
   }
 
-  const supabase = getServerSupabaseClient();
-  const { data, error } = await supabase.auth.getUser(token);
+  const authClient = getServerAuthClient();
+  const { data, error } = await authClient.auth.getUser(token);
   if (error || !data.user) {
     return { error: NextResponse.json({ error: "Invalid session" }, { status: 401 }) };
   }
 
-  return { supabase, userId: data.user.id };
+  return { supabase: getServerSupabaseClient(), userId: data.user.id };
 }
 
 export async function getRegisteredDeviceIp() {

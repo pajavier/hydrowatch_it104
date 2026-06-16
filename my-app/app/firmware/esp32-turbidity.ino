@@ -1,36 +1,19 @@
-/*
-  HydroWatch ESP32 Turbidity Sensor with Dashboard WiFi Configuration
-
-  Flow:
-  Turbidity Sensor -> ESP32 -> WiFi -> Supabase -> HydroWatch Dashboard
-
-  Board: ESP32 Dev Module
-  Sensor input: GPIO36
-
-  Features:
-  - WiFi credentials stored in Preferences/NVS
-  - Setup AP fallback at HydroWatch-Setup
-  - Authenticated local device API for dashboard WiFi changes
-  - Physical WiFi reset button, hold GPIO0 for 5 seconds
-  - Existing turbidity calibration and ingestion behavior preserved
-*/
-
 #include <WiFi.h>
 #include <WiFiClient.h>
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
 #include <Preferences.h>
 #include <WebServer.h>
+#include <Adafruit_ADS1X15.h>
+
+Adafruit_ADS1115 ads;
 
 const char* firmwareVersion = "2.0.0";
 const char* setupApSsid = "HydroWatch-Setup";
 const char* hydrowatchIngestUrl = "http://172.20.10.4:3000/api/esp32/ingest";
 
-// Set the same value in the dashboard environment as HYDROWATCH_DEVICE_API_KEY.
-// For production, enable ESP32 NVS encryption in the partition/security config.
 const char* hydrowatchDeviceApiKey = "change-this-device-key";
 
-const int turbidityPin = 36;
 const int wifiResetButtonPin = 0;
 const unsigned long resetHoldMs = 5000;
 const unsigned long readingIntervalMs = 5000;
@@ -44,7 +27,7 @@ const int maxWifiConnectAttempts = 3;
 const float ADC_MIN = 100.0;
 const float ADC_MAX = 2900.0;
 const float NTU_MIN = 0.0;
-const float NTU_MAX = 5.0;
+const float NTU_MAX = 300.0;
 
 Preferences preferences;
 WebServer server(80);
@@ -55,23 +38,46 @@ unsigned long resetButtonPressedAtMs = 0;
 double lastValidReading = 0.0;
 int consecutiveFailures = 0;
 bool setupMode = false;
+bool webServerStarted = false;
 
 void setup() {
   Serial.begin(115200);
   delay(100);
+  Wire.begin(21, 22);          // SDA, SCL
+
+  if (!ads.begin()) {
+    Serial.println("[HydroWatch] ADS1115 not found!");
+    while (1) {
+      delay(1000);
+    }
+  }
+
+  ads.setGain(GAIN_ONE);       // +/-4.096V (0.125mV/bit)
+
+  Serial.println("[HydroWatch] ADS1115 initialized.");
+  
   Serial.println("\n\n[HydroWatch] System starting...");
 
   pinMode(wifiResetButtonPin, INPUT_PULLUP);
-  preferences.begin("hydrowatch", false);
-  startDeviceApi();
 
-  if (!connectToSavedWiFi()) {
-    startSetupMode();
+  if (!preferences.begin("hydrowatch", false)) {
+    Serial.println("[HydroWatch] Preferences init failed!");
+  }
+
+  if (connectToSavedWiFi()) {
+    startDeviceApi();
+    return;
+  }
+
+  if (startSetupMode()) {
+    startDeviceApi();
   }
 }
 
 void loop() {
-  server.handleClient();
+  if (webServerStarted) {
+    server.handleClient();
+  }
   handleWifiResetButton();
 
   if (setupMode) {
@@ -96,7 +102,9 @@ void loop() {
   if (WiFi.status() != WL_CONNECTED && (currentMs - lastSuccessfulPostMs) > 60000) {
     Serial.println("[HydroWatch] WiFi disconnected for >60s, attempting reconnect...");
     if (!connectToSavedWiFi()) {
-      startSetupMode();
+      if (startSetupMode()) {
+        startDeviceApi();
+      }
     }
   }
 }
@@ -123,7 +131,6 @@ bool connectToSavedWiFi() {
     int dotCount = 0;
 
     while (WiFi.status() != WL_CONNECTED) {
-      server.handleClient();
       handleWifiResetButton();
 
       if (millis() - connectStartMs > wifiConnectTimeoutMs) {
@@ -163,20 +170,29 @@ bool connectToSavedWiFi() {
   return false;
 }
 
-void startSetupMode() {
+bool startSetupMode() {
   setupMode = true;
   WiFi.disconnect(true);
   WiFi.mode(WIFI_AP);
-  WiFi.softAP(setupApSsid);
+
+  if (!WiFi.softAP(setupApSsid)) {
+    Serial.println("[HydroWatch] Failed to start setup AP.");
+    return false;
+  }
 
   Serial.println("[HydroWatch] Setup mode active.");
   Serial.print("Connect to AP: ");
   Serial.println(setupApSsid);
   Serial.print("Setup IP: ");
   Serial.println(WiFi.softAPIP());
+  return true;
 }
 
 void startDeviceApi() {
+  if (webServerStarted) {
+    return;
+  }
+
   const char* headerKeys[] = {"X-HydroWatch-Key"};
   server.collectHeaders(headerKeys, 1);
   server.on("/", HTTP_GET, handleSetupPage);
@@ -188,6 +204,7 @@ void startDeviceApi() {
   server.on("/api/clear-wifi", HTTP_POST, handleApiClearWifi);
   server.onNotFound(handleNotFound);
   server.begin();
+  webServerStarted = true;
   Serial.println("[HydroWatch] Device API started on port 80.");
 }
 
@@ -314,7 +331,9 @@ void postTurbidityToSupabase(double reading) {
     if (!connectToSavedWiFi()) {
       Serial.println("[HydroWatch] WiFi reconnect failed, entering setup mode");
       consecutiveFailures++;
-      startSetupMode();
+      if (startSetupMode()) {
+        startDeviceApi();
+      }
       return;
     }
   }
@@ -409,28 +428,45 @@ bool postToEndpoint(double reading) {
 }
 
 double readTurbidity() {
-  const int sampleCount = 5;
-  float totalAdc = 0;
+
+  const int sampleCount = 10;
+  long total = 0;
 
   for (int i = 0; i < sampleCount; i++) {
-    totalAdc += analogRead(turbidityPin);
+    total += ads.readADC_SingleEnded(0);   // Read ADS1115 channel A0
     delay(10);
   }
 
-  float avgAdc = totalAdc / sampleCount;
+  float rawADC = total / (float)sampleCount;
+
+  // Gain ONE = 0.125mV per bit
+  float voltage = rawADC * 0.125f / 1000.0f;
+
+  // ======== CALIBRATION ========
+  // Change these values after measuring your sensor.
+
+  const float CLEAN_VOLTAGE = 4.20;
+  const float DIRTY_VOLTAGE = 2.50;
 
   double turbidity;
-  if (avgAdc <= ADC_MIN) {
-    turbidity = NTU_MIN;
-  } else if (avgAdc >= ADC_MAX) {
-    turbidity = NTU_MAX;
-  } else {
-    turbidity = NTU_MIN + (avgAdc - ADC_MIN) / (ADC_MAX - ADC_MIN) * (NTU_MAX - NTU_MIN);
-  }
 
-  Serial.print("[HydroWatch] Raw ADC: ");
-  Serial.print(avgAdc, 1);
-  Serial.print(" -> Turbidity: ");
+  if (voltage >= CLEAN_VOLTAGE)
+      turbidity = 0;
+
+  else if (voltage <= DIRTY_VOLTAGE)
+      turbidity = 200;
+
+  else
+      turbidity = (CLEAN_VOLTAGE - voltage) *
+                  (200.0 / (CLEAN_VOLTAGE - DIRTY_VOLTAGE));
+
+  Serial.print("[ADS1115] Raw: ");
+  Serial.print(rawADC);
+
+  Serial.print("  Voltage: ");
+  Serial.print(voltage, 3);
+
+  Serial.print(" V  Turbidity: ");
   Serial.print(turbidity, 2);
   Serial.println(" NTU");
 
@@ -443,7 +479,7 @@ bool isValidReading(double reading) {
     return false;
   }
 
-  if (reading < NTU_MIN || reading > NTU_MAX * 1.5) {
+  if (reading < 0 || reading > 1000) {
     Serial.print("[HydroWatch] Reading out of range: ");
     Serial.println(reading);
     return false;
