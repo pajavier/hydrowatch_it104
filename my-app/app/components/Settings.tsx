@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { ContainerType, EngineSettings, EnvironmentSettings, LightCondition, WaterType } from "@/types/hydrowatch";
+import { motion } from "framer-motion";
 
 type SettingsProps = {
   accessToken: string;
@@ -44,6 +45,19 @@ type DeviceStatusResponse = {
 const lightConditionOptions: LightCondition[] = ["Present", "Not Present"];
 const waterTypeOptions: WaterType[] = ["Distilled Water", "Tap Water", "River Water", "Lake Water", "Ground Water", "Other"];
 const containerTypeOptions: ContainerType[] = ["Glass", "Plastic", "Beaker", "Bottle", "Laboratory Tube", "Other"];
+
+const containerVariants = {
+  hidden: { opacity: 0 },
+  show: {
+    opacity: 1,
+    transition: { staggerChildren: 0.1 }
+  }
+};
+
+const itemVariants = {
+  hidden: { opacity: 0, y: 20 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.6, ease: [0.16, 1, 0.3, 1] } }
+};
 
 export function Settings({ accessToken, environmentSettings, settings, onSave, onSaveEnvironment }: SettingsProps) {
   const [deviceStatus, setDeviceStatus] = useState<DeviceStatusResponse | null>(null);
@@ -153,10 +167,20 @@ export function Settings({ accessToken, environmentSettings, settings, onSave, o
   };
 
   return (
-    <>
-      <div className="grid gap-4 lg:grid-cols-2">
-        <section className="rounded-2xl border border-white/10 bg-[#111A38] p-4">
-          <h2 className="mb-3 text-xl font-extrabold">Thresholds</h2>
+    <motion.div
+      variants={containerVariants}
+      initial="hidden"
+      animate="show"
+      className="flex flex-col gap-4"
+    >
+      <motion.div variants={itemVariants} className="mb-5">
+        <h2 className="text-2xl font-bold">Settings</h2>
+        <p className="text-sm text-slate-400">Configure system, environment, and device parameters</p>
+      </motion.div>
+
+      <motion.div variants={itemVariants} className="grid gap-4 lg:grid-cols-2">
+        <section className="rounded-3xl border border-purple-400/20 bg-gradient-to-br from-purple-500/20 to-indigo-600/10 p-5 shadow-xl backdrop-blur-md transition-all hover:shadow-2xl hover:shadow-indigo-500/10">
+          <h3 className="mb-4 text-lg font-semibold">Engine Thresholds</h3>
           <NumericInput
             label="Clear max"
             value={settings.thresholds.clearMax}
@@ -174,21 +198,21 @@ export function Settings({ accessToken, environmentSettings, settings, onSave, o
           />
         </section>
 
-        <section className="rounded-2xl border border-white/10 bg-[#111A38] p-4">
-          <h2 className="mb-3 text-xl font-extrabold">Environment Settings</h2>
+        <section className="rounded-3xl border border-teal-400/20 bg-gradient-to-br from-teal-500/20 to-emerald-600/10 p-5 shadow-xl backdrop-blur-md transition-all hover:shadow-2xl hover:shadow-emerald-500/10">
+          <h3 className="mb-4 text-lg font-semibold">Environment Settings</h3>
           <EnvironmentSettingsForm
             key={environmentSettings?.updatedAt ?? environmentSettings?.id ?? "new"}
             environmentSettings={environmentSettings}
             onSaveEnvironment={onSaveEnvironment}
           />
-          <p className="mt-4 text-xs text-slate-400">Session token: {accessToken.slice(0, 10)}...</p>
+          <p className="mt-4 text-center text-xs text-slate-400">Session token: {accessToken.slice(0, 10)}...</p>
         </section>
-      </div>
+      </motion.div>
 
-      <section className="mt-4 rounded-2xl border border-white/10 bg-[#111A38] p-4">
+      <motion.section variants={itemVariants} className="mt-4 rounded-3xl border border-slate-400/20 bg-gradient-to-br from-slate-500/15 to-slate-600/10 p-5 shadow-xl backdrop-blur-md transition-all hover:shadow-2xl hover:shadow-slate-500/10">
         <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="text-xl font-extrabold">ESP32 WiFi Configuration</h2>
+            <h3 className="text-lg font-semibold">ESP32 WiFi Configuration</h3>
             <p className="mt-1 text-sm text-slate-400">Update network access without reflashing the firmware.</p>
           </div>
           <button
@@ -275,16 +299,16 @@ export function Settings({ accessToken, environmentSettings, settings, onSave, o
         )}
         {deviceMessage && <p className="mt-3 text-sm font-semibold text-sky-200">{deviceMessage}</p>}
         {deviceError && <p className="mt-3 text-sm font-semibold text-red-300">{deviceError}</p>}
-      </section>
-    </>
+      </motion.section>
+    </motion.div>
   );
 }
 
 function StatusItem({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-white/10 bg-[#0B1128] px-3 py-2">
-      <p className="text-xs font-bold uppercase text-slate-500">{label}</p>
-      <p className="mt-1 break-words text-sm font-extrabold text-slate-100">{value}</p>
+    <div className="rounded-2xl border border-white/10 bg-[#0B1128]/50 px-4 py-3">
+      <p className="text-xs font-medium text-slate-400">{label}</p>
+      <p className="mt-1 break-words text-base font-bold text-slate-100">{value}</p>
     </div>
   );
 }

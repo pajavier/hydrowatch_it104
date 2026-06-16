@@ -1,10 +1,11 @@
 "use client";
 
-import { ReactNode, useEffect, useState } from "react";
+import { ReactNode, useEffect, useRef, useState } from "react";
 import { EnvironmentSettings, MonitoringSession, SystemAlert, WaterReading } from "@/types/hydrowatch";
 import { analyzeTurbidityRegression } from "@/utils/hydrowatch-analytics";
 import { formatManilaDateTime, formatManilaTime, getUtcTimestampMs } from "@/utils/time-format";
 import { getWaterSampleState, WaterSampleVisualization } from "./WaterSampleVisualization";
+import { motion } from "framer-motion";
 
 type Props = {
   accessToken: string;
@@ -26,6 +27,19 @@ type Props = {
   uptimeHours: string;
 };
 
+const containerVariants = {
+  hidden: { opacity: 0 },
+  show: {
+    opacity: 1,
+    transition: { staggerChildren: 0.1 }
+  }
+};
+
+const itemVariants = {
+  hidden: { opacity: 0, y: 20 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.6, ease: [0.16, 1, 0.3, 1] } }
+};
+
 export function Dashboard({
   accessToken,
   readings,
@@ -37,6 +51,7 @@ export function Dashboard({
   onConfigureEnvironment,
   onStartMonitoring,
   onStopMonitoring,
+  isLive,
   isLoadingMonitoring,
   isLoadingReadings,
   readingsError,
@@ -70,10 +85,15 @@ export function Dashboard({
   }, []);
 
   return (
-    <>
-        <div className="mb-5 flex items-center justify-between">
+    <motion.div 
+      variants={containerVariants}
+      initial="hidden"
+      animate="show"
+      className="flex flex-col gap-4"
+    >
+        <motion.div variants={itemVariants} className="flex items-center justify-between">
           <div>
-            <h2 className="text-3xl font-extrabold">Dashboard</h2>
+            <h2 className="text-2xl font-bold">Dashboard</h2>
             <p className="text-sm text-slate-400">Real-time analytics from ESP32 telemetry</p>
           </div>
           <span className={`rounded-full px-3 py-1 text-xs font-bold ring-1 ${
@@ -83,87 +103,125 @@ export function Dashboard({
           }`}>
             {deviceStatus}
           </span>
-        </div>
+        </motion.div>
 
-        <MonitoringControl
-          environmentSettings={environmentSettings}
-          error={controlError ?? monitoringError}
-          isLoading={isLoadingMonitoring}
-          isMonitoringActive={isMonitoringActive}
-          onConfigureEnvironment={onConfigureEnvironment}
-          onStartMonitoring={async () => {
-            setControlError(null);
-            try {
-              await onStartMonitoring();
-            } catch (error) {
-              setControlError(error instanceof Error ? error.message : "Unable to start monitoring.");
-            }
-          }}
-          onStopMonitoring={async () => {
-            setControlError(null);
-            try {
-              await onStopMonitoring();
-            } catch (error) {
-              setControlError(error instanceof Error ? error.message : "Unable to stop monitoring.");
-            }
-          }}
-        />
+        <motion.div variants={itemVariants} className="w-full overflow-x-auto pb-4 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+            <div className="grid min-w-[1024px] grid-cols-12 gap-4 xl:min-w-0">
+            <div className="col-span-4 flex flex-col gap-4">
+              <motion.div variants={itemVariants} className="flex-1">
+                <MonitoringControl
+                  environmentSettings={environmentSettings}
+                  error={controlError ?? monitoringError}
+                  isLoading={isLoadingMonitoring}
+                  isMonitoringActive={isMonitoringActive}
+                  onConfigureEnvironment={onConfigureEnvironment}
+                  onStartMonitoring={async () => {
+                    setControlError(null);
+                    try {
+                      await onStartMonitoring();
+                    } catch (error) {
+                      setControlError(error instanceof Error ? error.message : "Unable to start monitoring.");
+                    }
+                  }}
+                  onStopMonitoring={async () => {
+                    setControlError(null);
+                    try {
+                      await onStopMonitoring();
+                    } catch (error) {
+                      setControlError(error instanceof Error ? error.message : "Unable to stop monitoring.");
+                    }
+                  }}
+                />
+              </motion.div>
+              <motion.div variants={itemVariants} className="flex-1">
+                {!isLoadingReadings && !hasValidLatestReading && (
+                  <PredictionAnalysis
+                    abnormalEta="Pending"
+                    confidence="--"
+                    forecastSummary={
+                      readingsError
+                        ? `Unable to load Supabase readings: ${readingsError}`
+                        : "Waiting for ESP32 turbidity readings."
+                    }
+                    projectedNtu="--"
+                    tone="normal"
+                    trend="Pending"
+                  />
+                )}
+                {!isLoadingReadings && hasValidLatestReading && (
+                  <PredictionAnalysis
+                    abnormalEta={abnormalEta}
+                    confidence={`${latest!.predictionConfidence}%`}
+                    forecastSummary={latest!.prediction}
+                    projectedNtu={`${latest!.projectedNTU ?? latest!.turbidity} NTU`}
+                    tone={latest!.prediction === "Critical Condition Expected" ? "critical" : latest!.prediction === "Rising Turbidity" ? "warning" : "normal"}
+                    trend={`${trend >= 0 ? "+" : ""}${trend.toFixed(2)} NTU`}
+                  />
+                )}
+              </motion.div>
+            </div>
 
-        {isLoadingReadings ? <div className="h-[420px] animate-pulse rounded-3xl bg-white/10" /> : !hasValidLatestReading ? (
-          <>
-            <WaterMonitoringStation
-              accessToken={accessToken}
-              onAcknowledgeAlert={onAcknowledgeAlert}
-              alerts={alerts}
-              healthScore={healthScore}
-              latestEvents={latestEvents}
-              latestReading="Waiting for reading"
-              uptimeHours={uptimeHours}
-              waterQualityScore={waterQualityScore}
-            />
+            <motion.div variants={itemVariants} className="col-span-8 flex flex-col gap-4">
+              {isLoadingReadings ? (
+                <div className="h-full min-h-[420px] animate-pulse rounded-[2rem] bg-white/10" />
+              ) : !hasValidLatestReading ? (
+                <WaterMonitoringStation
+                  accessToken={accessToken}
+                  alerts={alerts}
+                  healthScore={healthScore}
+                  latestEvents={latestEvents}
+                  latestReading="Waiting for reading"
+                  onAcknowledgeAlert={onAcknowledgeAlert}
+                  uptimeHours={uptimeHours}
+                  waterQualityScore={waterQualityScore}
+                />
+              ) : (
+                <WaterMonitoringStation
+                  accessToken={accessToken}
+                  alerts={alerts}
+                  healthScore={healthScore}
+                  latestEvents={latestEvents}
+                  latestReading={`${latest!.turbidity} NTU`}
+                  onAcknowledgeAlert={onAcknowledgeAlert}
+                  reading={latest}
+                  uptimeHours={uptimeHours}
+                  waterQualityScore={waterQualityScore}
+                />
+              )}
+            </motion.div>
 
-            <PredictionAnalysis
-              confidence="--"
-              forecastSummary={
-                readingsError
-                  ? `Unable to load Supabase readings: ${readingsError}`
-                  : "Waiting for ESP32 turbidity readings."
-              }
-              projectedNtu="--"
-              abnormalEta="Pending"
-              tone="normal"
-              trend="Pending"
-            />
-
-            <TrendPanel readings={[]} tone="normal" />
-          </>
-        ) : (
-          <>
-            <WaterMonitoringStation
-              accessToken={accessToken}
-              onAcknowledgeAlert={onAcknowledgeAlert}
-              alerts={alerts}
-              healthScore={healthScore}
-              latestEvents={latestEvents}
-              latestReading={`${latest!.turbidity} NTU`}
-              reading={latest}
-              uptimeHours={uptimeHours}
-              waterQualityScore={waterQualityScore}
-            />
-
-            <PredictionAnalysis
-              confidence={`${latest!.predictionConfidence}%`}
-              forecastSummary={latest!.prediction}
-              projectedNtu={`${latest!.projectedNTU ?? latest!.turbidity} NTU`}
-              abnormalEta={abnormalEta}
-              tone={latest!.prediction === "Critical Condition Expected" ? "critical" : latest!.prediction === "Rising Turbidity" ? "warning" : "normal"}
-              trend={`${trend >= 0 ? "+" : ""}${trend.toFixed(2)} NTU`}
-            />
-
-            <TrendPanel readings={readings.slice(-30)} tone={statusTone} />
-          </>
-        )}
-    </>
+            <motion.div variants={itemVariants} className="col-span-12">
+              {isLoadingReadings ? (
+                <div className="h-[300px] animate-pulse rounded-[2rem] bg-white/10" />
+              ) : !hasValidLatestReading ? (
+                <TrendPanel 
+                  readings={[]} 
+                  tone="normal"
+                  healthScore={healthScore}
+                  waterQualityScore={waterQualityScore}
+                  alertsCount={alerts.length}
+                  deviceStatus={deviceStatus}
+                  isMonitoringActive={isMonitoringActive}
+                  uptimeHours={uptimeHours}
+                  isLive={isLive}
+                />
+              ) : (
+                <TrendPanel 
+                  readings={readings.slice(-30)} 
+                  tone={statusTone} 
+                  healthScore={healthScore}
+                  waterQualityScore={waterQualityScore}
+                  alertsCount={alerts.length}
+                  deviceStatus={deviceStatus}
+                  isMonitoringActive={isMonitoringActive}
+                  uptimeHours={uptimeHours}
+                  isLive={isLive}
+                />
+              )}
+            </motion.div>
+          </div>
+        </motion.div>
+    </motion.div>
   );
 }
 
@@ -186,31 +244,39 @@ function MonitoringControl({
 }) {
   const status = isMonitoringActive ? "Monitoring" : environmentSettings ? "Ready" : "Stopped";
   const statusClass = isMonitoringActive
-    ? "bg-emerald-500/20 text-emerald-200 ring-emerald-300/30"
+    ? "bg-emerald-500/15 text-emerald-200 ring-emerald-300/30"
     : environmentSettings
-      ? "bg-sky-500/20 text-sky-200 ring-sky-300/30"
-      : "bg-amber-500/20 text-amber-100 ring-amber-300/30";
+      ? "bg-sky-500/15 text-sky-200 ring-sky-300/30"
+      : "bg-amber-500/15 text-amber-100 ring-amber-300/30";
 
   return (
-    <section className="mb-4 rounded-3xl border border-white/10 bg-[#111A38] p-5">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <h3 className="text-2xl font-extrabold">Monitoring Control</h3>
-            <span className={`rounded-full px-3 py-1 text-xs font-extrabold ring-1 ${statusClass}`}>
+    <section className="flex h-full flex-col justify-between rounded-[2rem] border border-sky-400/20 bg-gradient-to-br from-sky-500/20 to-blue-600/10 p-5 shadow-lg backdrop-blur-md">
+      <div>
+        <div className="flex flex-wrap items-center gap-2">
+          <h3 className="text-lg font-semibold">Monitoring Control</h3>
+          <span className={`rounded-full px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide ring-1 ${statusClass}`}>
               {status}
             </span>
           </div>
-          <p className="mt-2 text-sm text-slate-300">
+        <p className="mt-2 text-xs text-slate-300">
             {isMonitoringActive
               ? "Monitoring Active"
-              : "Monitoring is currently stopped. Configure the environment settings before starting a new collection session."}
+            : "Monitoring is currently stopped. Configure settings before starting."}
           </p>
         </div>
+
+      <div className="mt-4 flex flex-col gap-2">
+        <StationStat compact label="Light Condition" value={environmentSettings?.lightCondition ?? "Required"} />
+        <StationStat compact label="Water Type" value={environmentSettings?.waterType ?? "Not configured"} />
+        <StationStat compact label="Container Type" value={environmentSettings?.containerType ?? "Not configured"} />
+      </div>
+
+      <div className="mt-4 flex flex-col gap-2">
+        {error && <p className="mb-2 text-xs font-semibold text-red-300">{error}</p>}
         <div className="flex flex-wrap gap-2">
           {!environmentSettings && (
             <button
-              className="rounded-xl border border-sky-300/30 px-4 py-2 text-sm font-bold text-sky-100 transition hover:bg-sky-500/10"
+              className="w-full rounded-xl border border-sky-300/30 px-4 py-2 text-sm font-bold text-sky-100 transition hover:bg-sky-500/10"
               type="button"
               onClick={onConfigureEnvironment}
             >
@@ -219,7 +285,7 @@ function MonitoringControl({
           )}
           {environmentSettings && !isMonitoringActive && (
             <button
-              className="rounded-xl bg-emerald-400 px-4 py-2 text-sm font-extrabold text-[#071225] transition hover:bg-emerald-300 disabled:opacity-60"
+              className="w-full rounded-xl bg-emerald-400 px-4 py-2 text-sm font-extrabold text-[#071225] transition hover:bg-emerald-300 disabled:opacity-60"
               type="button"
               disabled={isLoading}
               onClick={() => void onStartMonitoring()}
@@ -229,7 +295,7 @@ function MonitoringControl({
           )}
           {isMonitoringActive && (
             <button
-              className="rounded-xl border border-red-300/30 px-4 py-2 text-sm font-bold text-red-100 transition hover:bg-red-500/10 disabled:opacity-60"
+              className="w-full rounded-xl border border-red-300/30 px-4 py-2 text-sm font-bold text-red-100 transition hover:bg-red-500/10 disabled:opacity-60"
               type="button"
               disabled={isLoading}
               onClick={() => void onStopMonitoring()}
@@ -239,18 +305,6 @@ function MonitoringControl({
           )}
         </div>
       </div>
-
-      <div className="mt-4 grid gap-3 md:grid-cols-3">
-        <StationStat label="Light Condition" value={environmentSettings?.lightCondition ?? "Environment Configuration Required"} />
-        <StationStat label="Water Type" value={environmentSettings?.waterType ?? "Not configured"} />
-        <StationStat label="Container Type" value={environmentSettings?.containerType ?? "Not configured"} />
-      </div>
-      {environmentSettings && (
-        <p className="mt-3 text-sm text-slate-400">
-          Environment: {environmentSettings.lightCondition}, {environmentSettings.waterType}, {environmentSettings.containerType}
-        </p>
-      )}
-      {error && <p className="mt-3 text-sm font-semibold text-red-300">{error}</p>}
     </section>
   );
 }
@@ -284,66 +338,58 @@ function WaterMonitoringStation({
     : "Waiting for reading";
 
   return (
-    <section className={`rounded-3xl border bg-[#111A38] p-5 shadow-2xl shadow-black/25 transition-colors duration-700 sm:p-6 ${sampleState.ring}`}>
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+    <section className={`flex h-full flex-col rounded-[2rem] border bg-gradient-to-br from-cyan-500/15 to-teal-600/5 p-5 shadow-2xl shadow-black/25 backdrop-blur-md transition-colors duration-700 ${sampleState.ring}`}>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <p className="text-sm uppercase tracking-[0.2em] text-sky-300">Water Monitoring Station</p>
-          <h3 className="mt-1 text-3xl font-extrabold">Live Sample Overview</h3>
+          <p className="text-xs font-medium uppercase tracking-wider text-sky-300">Water Station</p>
+          <h3 className="text-lg font-semibold">Live Sample</h3>
         </div>
-        <span className={`w-fit rounded-full px-3 py-1 text-xs font-extrabold ring-1 ${sampleState.text}`}>
+        <span className={`w-fit rounded-full px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide ring-1 ${sampleState.text}`}>
           {sampleState.badge}
         </span>
       </div>
 
-      <div className="mt-5 grid gap-3 md:grid-cols-3">
-        <StationStat label="Current NTU" value={reading ? `${ntu.toFixed(2)} NTU` : "-- NTU"} />
-        <StationStat label="Condition" value={sampleState.condition} />
-        <StationStat label="Last Reading" value={lastReading} />
+      <div className="mt-4 grid grid-cols-3 gap-2">
+        <StationStat compact label="Current NTU" value={reading ? `${ntu.toFixed(2)} NTU` : "-- NTU"} />
+        <StationStat compact label="Condition" value={sampleState.condition} />
+        <StationStat compact label="Last Reading" value={lastReading} />
       </div>
 
-      <div className="mt-5 grid items-center gap-5 xl:grid-cols-[minmax(0,0.95fr)_minmax(320px,1.05fr)]">
-        <WaterSampleVisualization reading={reading} />
+      <div className="mt-4 grid flex-1 items-center gap-4 lg:grid-cols-2">
+        <div className="flex h-full items-center justify-center rounded-2xl bg-[#0B1128]/30">
+          <WaterSampleVisualization reading={reading} />
+        </div>
 
-        <div className="grid gap-4">
-          <StationPanel title="Alerts">
-            {alerts.length === 0 && <p className="text-sm text-slate-400">No active alerts.</p>}
-            {alerts.slice(0, 5).map((alert) => (
-              <div className="mb-2 rounded-xl bg-white/5 p-3 transition-colors duration-500" key={alert.id}>
-                <p className="text-sm font-bold">{alert.severity} - {alert.title}</p>
-                <p className="text-xs text-slate-300">{alert.message}</p>
-                <p className="text-xs text-slate-400">NTU {alert.ntuValue} - {alert.action}</p>
-                <div className="mt-2 flex items-center justify-between gap-2">
-                  <p className="text-[11px] text-slate-500">{formatManilaTime(alert.timestamp)}</p>
-                  <button
-                    className="rounded-full border border-emerald-300/30 bg-emerald-500/15 px-3 py-1 text-[11px] font-bold text-emerald-100 transition hover:bg-emerald-500/25"
-                    onClick={() => onAcknowledgeAlert(alert.id)}
-                    type="button"
-                  >
-                    OK
-                  </button>
-                </div>
-              </div>
-            ))}
-          </StationPanel>
-
+        <div className="flex h-full flex-col gap-3">
           <StationPanel title="Quick Info">
-            <Info label="Monitoring Health" value={`${healthScore}%`} />
-            <Info label="Water Quality" value={`${waterQualityScore}%`} />
-            <Info label="Alert Summary" value={`${alerts.length} active`} />
+            <Info label="Health" value={`${healthScore}%`} />
+            <Info label="Quality" value={`${waterQualityScore}%`} />
+            <Info label="Alerts" value={`${alerts.length} active`} />
             <Info label="Uptime" value={`${uptimeHours} hrs`} />
-            <Info label="Latest Reading" value={latestReading} />
+            <Info label="Latest" value={latestReading} />
             <Info label="Session" value={`${accessToken.slice(0, 10)}...`} />
           </StationPanel>
 
-          <StationPanel title="Recent Turbidity Events">
-            {latestEvents.length === 0 && <p className="text-sm text-slate-400">No recent events.</p>}
-            {latestEvents.map((event) => (
-              <Info
-                key={event.id}
-                label={formatManilaTime(event.createdAt)}
-                value={`${event.turbidity} NTU`}
-              />
-            ))}
+          <StationPanel title="Alerts">
+            <div className="max-h-[140px] overflow-y-auto pr-2">
+              {alerts.length === 0 && <p className="text-xs text-slate-400">No active alerts.</p>}
+              {alerts.map((alert) => (
+                <div className="mb-2 rounded-xl bg-white/5 p-2 transition-colors duration-500" key={alert.id}>
+                  <p className="text-xs font-bold">{alert.severity} - {alert.title}</p>
+                  <p className="text-[10px] text-slate-300">{alert.message}</p>
+                  <div className="mt-1 flex items-center justify-between gap-2">
+                    <p className="text-[9px] text-slate-500">{formatManilaTime(alert.timestamp)}</p>
+                    <button
+                      className="rounded-full border border-emerald-300/30 bg-emerald-500/15 px-2 py-0.5 text-[9px] font-bold text-emerald-100 transition hover:bg-emerald-500/25"
+                      onClick={() => onAcknowledgeAlert(alert.id)}
+                      type="button"
+                    >
+                      OK
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
           </StationPanel>
         </div>
       </div>
@@ -351,11 +397,11 @@ function WaterMonitoringStation({
   );
 }
 
-function StationStat({ label, value }: { label: string; value: string }) {
+function StationStat({ compact, label, value }: { compact?: boolean; label: string; value: string }) {
   return (
-    <article className="min-w-0 rounded-2xl border border-white/10 bg-[#0B1128] px-4 py-4">
-      <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">{label}</p>
-      <p className="mt-2 truncate text-xl font-extrabold text-white">{value}</p>
+    <article className={`min-w-0 rounded-2xl border border-white/10 bg-[#0B1128]/50 ${compact ? "px-3 py-2" : "px-4 py-4"}`}>
+      <p className="text-xs font-medium text-slate-400">{label}</p>
+      <p className={`truncate font-bold text-white ${compact ? "mt-1 text-base" : "mt-2 text-lg"}`}>{value}</p>
     </article>
   );
 }
@@ -378,30 +424,30 @@ function PredictionAnalysis({
   const accent = tone === "critical" ? "text-red-300" : tone === "warning" ? "text-yellow-300" : "text-sky-200";
 
   return (
-    <section className="mt-4 rounded-3xl border border-white/10 bg-[#111A38] p-5 transition-colors duration-700">
-      <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <p className="text-sm uppercase tracking-[0.2em] text-sky-300">Prediction Analysis</p>
-          <h3 className="mt-1 text-2xl font-extrabold">Forecast Overview</h3>
-        </div>
-        <span className={`text-sm font-bold ${accent}`}>{forecastSummary}</span>
+    <section className="flex h-full flex-col justify-between rounded-[2rem] border border-purple-400/20 bg-gradient-to-br from-indigo-500/20 to-violet-600/10 p-5 backdrop-blur-md transition-colors duration-700">
+      <div>
+        <p className="text-xs font-medium uppercase tracking-wider text-sky-300">Prediction</p>
+        <h3 className="text-lg font-semibold">Forecast</h3>
+        <p className={`mt-1 text-xs font-bold ${accent}`}>{forecastSummary}</p>
       </div>
 
-      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <AnalysisStat label="Recent Delta" value={trend} tone={tone} />
-        <AnalysisStat label="Confidence" value={confidence} tone={tone} />
-        <AnalysisStat label="Projected NTU" value={projectedNtu} tone={tone} />
-        <AnalysisStat label="Abnormal ETA" value={abnormalEta} tone={tone} />
+      <div className="mt-4 grid grid-cols-2 gap-2">
+        <AnalysisStat compact label="Delta" value={trend} tone={tone} />
+        <AnalysisStat compact label="Confidence" value={confidence} tone={tone} />
+        <AnalysisStat compact label="Projected" value={projectedNtu} tone={tone} />
+        <AnalysisStat compact label="Abnormal ETA" value={abnormalEta} tone={tone} />
       </div>
     </section>
   );
 }
 
 function AnalysisStat({
+  compact,
   label,
   tone,
   value,
 }: {
+  compact?: boolean;
   label: string;
   tone: "normal" | "warning" | "critical";
   value: string;
@@ -409,9 +455,9 @@ function AnalysisStat({
   const c = tone === "critical" ? "text-red-300" : tone === "warning" ? "text-yellow-300" : "text-sky-200";
 
   return (
-    <article className="min-w-0 rounded-2xl border border-white/10 bg-[#0B1128] px-4 py-3">
-      <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">{label}</p>
-      <p className={`mt-2 truncate text-xl font-extrabold ${c}`}>{value}</p>
+    <article className={`min-w-0 rounded-2xl border border-white/10 bg-[#0B1128]/50 ${compact ? "px-3 py-2" : "px-4 py-3"}`}>
+      <p className="text-xs font-medium text-slate-400">{label}</p>
+      <p className={`truncate font-bold ${c} ${compact ? "mt-1 text-base" : "mt-2 text-lg"}`}>{value}</p>
     </article>
   );
 }
@@ -419,46 +465,219 @@ function AnalysisStat({
 function TrendPanel({
   readings,
   tone,
+  healthScore,
+  waterQualityScore,
+  alertsCount,
+  deviceStatus,
+  isMonitoringActive,
+  uptimeHours,
+  isLive,
 }: {
   readings: WaterReading[];
   tone: "normal" | "warning" | "critical";
+  healthScore: number;
+  waterQualityScore: number;
+  alertsCount: number;
+  deviceStatus: string;
+  isMonitoringActive: boolean;
+  uptimeHours: string;
+  isLive: boolean;
 }) {
   const analytics = buildTrendAnalytics(readings);
+  const [activePage, setActivePage] = useState(0);
+  const carouselRef = useRef<HTMLDivElement>(null);
+
+  const handleScroll = () => {
+    if (!carouselRef.current) return;
+    const width = carouselRef.current.offsetWidth;
+    const scrollLeft = carouselRef.current.scrollLeft;
+    const page = Math.round(scrollLeft / width);
+    if (page !== activePage) setActivePage(page);
+  };
+
+  const scrollToPage = (page: number) => {
+    if (!carouselRef.current) return;
+    const width = carouselRef.current.offsetWidth;
+    carouselRef.current.scrollTo({ left: width * page, behavior: "smooth" });
+  };
+
   const latest = analytics.latest;
 
   return (
-    <section className="mt-4 rounded-3xl border border-white/10 bg-[#111A38] p-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+    <section className="rounded-[2rem] border border-white/10 bg-[#111A38]/60 p-5 shadow-xl backdrop-blur-md">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h3 className="font-extrabold">Turbidity Trend</h3>
-          <p className="mt-1 text-sm text-slate-400">Actual readings, regression prediction, and moving average.</p>
+          <h3 className="text-lg font-semibold">Turbidity Trend</h3>
+          <p className="text-xs text-slate-400">Actual readings, regression prediction, and moving average.</p>
         </div>
-        <div className="min-w-[190px] rounded-2xl border border-cyan-300/20 bg-cyan-300/10 px-4 py-3 text-right">
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-cyan-200">Current Turbidity</p>
-          <p className="mt-1 text-3xl font-extrabold text-white">{latest ? `${formatNtu(latest.turbidity, 2)} NTU` : "-- NTU"}</p>
+        <div className="min-w-[160px] rounded-2xl border border-cyan-300/20 bg-cyan-300/10 px-3 py-2 text-right">
+          <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-cyan-200">Current Turbidity</p>
+          <p className="text-2xl font-extrabold text-white">{latest ? `${formatNtu(latest.turbidity, 2)} NTU` : "-- NTU"}</p>
         </div>
       </div>
 
-      <div className="mt-4 rounded-2xl bg-[#0B1128] p-3">
+      <div className="mt-4 rounded-2xl bg-[#0B1128]/50 p-2">
         <Trend analytics={analytics} tone={tone} />
       </div>
 
-      <ReadingStatistics analytics={analytics} />
-      <RegressionAnalysis analytics={analytics} />
+      <div className="group relative mt-8">
+        <button
+          onClick={() => scrollToPage(Math.max(0, activePage - 1))}
+          className={`absolute -left-4 top-1/2 z-20 -translate-y-1/2 rounded-full bg-[#111A38]/90 border border-white/10 p-3 text-white shadow-2xl backdrop-blur-md transition-all duration-300 hover:scale-110 hover:bg-slate-800 hover:shadow-cyan-500/20 ${activePage === 0 ? 'opacity-0 pointer-events-none' : 'opacity-0 group-hover:opacity-100'}`}
+          aria-label="Previous Page"
+        >
+          <ChevronIcon direction="left" />
+        </button>
+
+        <div 
+          ref={carouselRef} 
+          onScroll={handleScroll}
+          className="flex snap-x snap-mandatory overflow-x-auto scroll-smooth pb-4 pt-2 gap-4 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
+        >
+          {/* Page 1: Water Quality Overview */}
+          <div className="min-w-full w-full flex-shrink-0 snap-center grid grid-cols-2 md:grid-cols-4 grid-rows-2 gap-3 lg:gap-4">
+            <MetricBentoCard className="col-span-2 row-span-2" gradientClass="bg-gradient-to-br from-cyan-500/20 via-blue-600/10 to-transparent border-cyan-400/30">
+              <p className="text-xs font-bold uppercase tracking-wider text-cyan-200/80">Current Turbidity</p>
+              <div className="mt-4">
+                <p className="text-6xl md:text-7xl font-extrabold text-white drop-shadow-md">{formatNtu(analytics.latest?.turbidity ?? NaN, 2)}</p>
+                <p className="mt-2 text-xs font-medium text-cyan-100/60">NTU (Nephelometric Turbidity Units)</p>
+              </div>
+            </MetricBentoCard>
+            <MetricBentoCard gradientClass="bg-gradient-to-br from-emerald-500/10 to-teal-600/5 border-emerald-500/20">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-300/70">Water Status</p>
+              <p className="mt-1 text-xl font-bold text-white">{analytics.latest?.status || "Unknown"}</p>
+            </MetricBentoCard>
+            <MetricBentoCard gradientClass="bg-gradient-to-br from-purple-500/10 to-indigo-600/5 border-purple-500/20">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-purple-300/70">Trend Direction</p>
+              <p className="mt-1 text-lg font-bold text-white truncate">{analytics.health.label.replace(/^[^\w\s]+/, '').trim() || "Pending"}</p>
+            </MetricBentoCard>
+            <MetricBentoCard gradientClass="bg-gradient-to-br from-blue-500/10 to-sky-600/5 border-blue-500/20">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-blue-300/70">Quality Score</p>
+              <p className="mt-1 text-xl font-bold text-white">{waterQualityScore}%</p>
+            </MetricBentoCard>
+            <MetricBentoCard gradientClass="bg-gradient-to-br from-amber-500/10 to-orange-600/5 border-amber-500/20">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-amber-300/70">Latest Reading</p>
+              <p className="mt-1 text-lg font-bold text-white">{analytics.latest ? formatManilaTime(analytics.latest.createdAt) : "--:--"}</p>
+            </MetricBentoCard>
+          </div>
+
+          {/* Page 2: Machine Learning Analytics */}
+          <div className="min-w-full w-full flex-shrink-0 snap-center grid grid-cols-2 md:grid-cols-4 grid-rows-2 gap-3 lg:gap-4">
+            <MetricBentoCard className="col-span-2 row-span-2" gradientClass="bg-gradient-to-br from-purple-500/20 via-fuchsia-600/10 to-transparent border-purple-400/30">
+              <p className="text-xs font-bold uppercase tracking-wider text-purple-200/80">Prediction Confidence</p>
+              <div className="mt-4">
+                <p className="text-6xl md:text-7xl font-extrabold text-white drop-shadow-md">{analytics.metrics ? `${Math.round(analytics.metrics.confidence)}%` : "--"}</p>
+                <p className="mt-2 text-xs font-medium text-purple-100/60">ML Model Reliability Rating</p>
+              </div>
+            </MetricBentoCard>
+            <MetricBentoCard gradientClass="bg-white/5 border-white/10">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">RMSE</p>
+              <p className="mt-1 text-xl font-bold text-white">{analytics.metrics ? formatNtu(analytics.metrics.rmse, 3) : "--"}</p>
+            </MetricBentoCard>
+            <MetricBentoCard gradientClass="bg-white/5 border-white/10">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">MAE</p>
+              <p className="mt-1 text-xl font-bold text-white">{analytics.metrics ? formatNtu(analytics.metrics.mae, 3) : "--"}</p>
+            </MetricBentoCard>
+            <MetricBentoCard gradientClass="bg-white/5 border-white/10">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">R² Score</p>
+              <p className="mt-1 text-xl font-bold text-white">{analytics.metrics ? formatNtu(analytics.metrics.rSquared, 2) : "--"}</p>
+            </MetricBentoCard>
+            <MetricBentoCard gradientClass="bg-white/5 border-white/10">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Forecast Result</p>
+              <p className="mt-1 text-lg font-bold text-white truncate">{analytics.metrics?.confidenceLabel ?? "Waiting"}</p>
+            </MetricBentoCard>
+          </div>
+
+          {/* Page 3: Water Statistics */}
+          <div className="min-w-full w-full flex-shrink-0 snap-center grid grid-cols-2 md:grid-cols-3 grid-rows-2 gap-3 lg:gap-4">
+            <MetricBentoCard gradientClass="bg-gradient-to-br from-blue-500/10 to-cyan-600/5 border-blue-500/20">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-blue-300/70">Minimum NTU</p>
+              <p className="mt-2 text-3xl font-extrabold text-white">{analytics.stats ? formatNtu(analytics.stats.min, 2) : "--"}</p>
+            </MetricBentoCard>
+            <MetricBentoCard gradientClass="bg-gradient-to-br from-orange-500/10 to-red-600/5 border-orange-500/20">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-orange-300/70">Maximum NTU</p>
+              <p className="mt-2 text-3xl font-extrabold text-white">{analytics.stats ? formatNtu(analytics.stats.max, 2) : "--"}</p>
+            </MetricBentoCard>
+            <MetricBentoCard gradientClass="bg-gradient-to-br from-emerald-500/10 to-teal-600/5 border-emerald-500/20">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-300/70">Average NTU</p>
+              <p className="mt-2 text-3xl font-extrabold text-white">{analytics.stats ? formatNtu(analytics.stats.average, 2) : "--"}</p>
+            </MetricBentoCard>
+            <MetricBentoCard gradientClass="bg-gradient-to-br from-sky-500/10 to-blue-600/5 border-sky-500/20">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-sky-300/70">Latest NTU</p>
+              <p className="mt-2 text-3xl font-extrabold text-white">{analytics.latest ? formatNtu(analytics.latest.turbidity, 2) : "--"}</p>
+            </MetricBentoCard>
+            <MetricBentoCard gradientClass="bg-gradient-to-br from-indigo-500/10 to-violet-600/5 border-indigo-500/20">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-indigo-300/70">Data Points</p>
+              <p className="mt-2 text-3xl font-extrabold text-white">{analytics.readingCount}</p>
+            </MetricBentoCard>
+            <MetricBentoCard gradientClass="bg-gradient-to-br from-pink-500/10 to-rose-600/5 border-pink-500/20">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-pink-300/70">Trend Summary</p>
+              <p className="mt-2 text-2xl font-extrabold text-white truncate">{analytics.health.label.replace(/^[^\w\s]+/, '').trim() || "Pending"}</p>
+            </MetricBentoCard>
+          </div>
+
+          {/* Page 4: System Health */}
+          <div className="min-w-full w-full flex-shrink-0 snap-center grid grid-cols-2 md:grid-cols-3 grid-rows-2 gap-3 lg:gap-4">
+            <MetricBentoCard gradientClass="bg-white/5 border-white/10">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Monitoring Status</p>
+              <p className="mt-2 text-2xl font-extrabold text-white">{isMonitoringActive ? "Active" : "Stopped"}</p>
+            </MetricBentoCard>
+            <MetricBentoCard gradientClass="bg-white/5 border-white/10">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Sensor Status</p>
+              <p className="mt-2 text-2xl font-extrabold text-white">{deviceStatus}</p>
+            </MetricBentoCard>
+            <MetricBentoCard gradientClass="bg-white/5 border-white/10">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Data Stream</p>
+              <p className="mt-2 text-2xl font-extrabold text-white">{isLive ? "Live" : "Delayed"}</p>
+            </MetricBentoCard>
+            <MetricBentoCard gradientClass="bg-white/5 border-white/10">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Session Uptime</p>
+              <p className="mt-2 text-2xl font-extrabold text-white">{uptimeHours}h</p>
+            </MetricBentoCard>
+            <MetricBentoCard gradientClass="bg-white/5 border-white/10">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Alert Count</p>
+              <p className="mt-2 text-2xl font-extrabold text-white">{alertsCount}</p>
+            </MetricBentoCard>
+            <MetricBentoCard gradientClass="bg-white/5 border-white/10">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">System Health</p>
+              <p className="mt-2 text-2xl font-extrabold text-white">{healthScore}%</p>
+            </MetricBentoCard>
+          </div>
+        </div>
+
+        <button
+          onClick={() => scrollToPage(Math.min(3, activePage + 1))}
+          className={`absolute -right-4 top-1/2 z-20 -translate-y-1/2 rounded-full bg-[#111A38]/90 border border-white/10 p-3 text-white shadow-2xl backdrop-blur-md transition-all duration-300 hover:scale-110 hover:bg-slate-800 hover:shadow-cyan-500/20 ${activePage === 3 ? 'opacity-0 pointer-events-none' : 'opacity-0 group-hover:opacity-100'}`}
+          aria-label="Next Page"
+        >
+          <ChevronIcon direction="right" />
+        </button>
+
+        <div className="flex justify-center items-center gap-2 mt-4">
+          {[0, 1, 2, 3].map((idx) => (
+            <button
+              key={idx}
+              onClick={() => scrollToPage(idx)}
+              className={`h-2 rounded-full transition-all duration-500 ease-out ${activePage === idx ? 'w-8 bg-sky-400 shadow-[0_0_10px_rgba(56,189,248,0.7)]' : 'w-2 bg-white/20 hover:bg-white/40'}`}
+              aria-label={`Go to page ${idx + 1}`}
+            />
+          ))}
+        </div>
+      </div>
     </section>
   );
 }
 
 function StationPanel({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="rounded-2xl border border-white/10 bg-[#0B1128]/70 p-4">
-      <h4 className="mb-3 font-extrabold">{title}</h4>
+    <section className="flex flex-col rounded-2xl border border-white/10 bg-[#0B1128]/50 p-3">
+      <h4 className="mb-2 text-sm font-semibold">{title}</h4>
       {children}
     </section>
   );
 }
 function Info({ label, value }: { label: string; value: string }) {
-  return <div className="mb-2 flex justify-between rounded-xl bg-white/5 px-3 py-2 text-sm"><span className="text-slate-400">{label}</span><span className="font-bold">{value}</span></div>;
+  return <div className="mb-2 flex justify-between rounded-xl bg-white/5 px-3 py-2 text-xs"><span className="text-slate-400">{label}</span><span className="font-bold">{value}</span></div>;
 }
 function Trend({ analytics, tone }: { analytics: TrendAnalytics; tone: "normal" | "warning" | "critical" }) {
   const [tooltip, setTooltip] = useState<TrendPoint | null>(null);
@@ -598,46 +817,23 @@ function Trend({ analytics, tone }: { analytics: TrendAnalytics; tone: "normal" 
   );
 }
 
-function ReadingStatistics({ analytics }: { analytics: TrendAnalytics }) {
+function MetricBentoCard({
+  children,
+  className = "",
+  gradientClass = "bg-[#0B1128]/50 border-white/5",
+}: {
+  children: ReactNode;
+  className?: string;
+  gradientClass?: string;
+}) {
   return (
-    <div className="mt-4">
-      <h4 className="font-extrabold">Reading Statistics</h4>
-      <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <AnalysisStat label="Minimum Reading" value={analytics.stats ? `${formatNtu(analytics.stats.min, 2)} NTU` : "-- NTU"} tone="normal" />
-        <AnalysisStat label="Maximum Reading" value={analytics.stats ? `${formatNtu(analytics.stats.max, 2)} NTU` : "-- NTU"} tone="normal" />
-        <AnalysisStat label="Average Reading" value={analytics.stats ? `${formatNtu(analytics.stats.average, 2)} NTU` : "-- NTU"} tone="normal" />
-        <AnalysisStat label="Latest Reading" value={analytics.latest ? `${formatNtu(analytics.latest.turbidity, 2)} NTU` : "-- NTU"} tone="normal" />
-      </div>
-    </div>
-  );
-}
-
-function RegressionAnalysis({ analytics }: { analytics: TrendAnalytics }) {
-  const health = analytics.health;
-
-  return (
-    <div className="mt-4">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <h4 className="font-extrabold">Regression Analysis</h4>
-        <span className={`w-fit rounded-full px-3 py-1 text-xs font-extrabold ring-1 ${health.className}`}>{health.label}</span>
-      </div>
-      <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <RegressionStat label="RMSE" value={analytics.metrics ? `${formatNtu(analytics.metrics.rmse, 3)} NTU` : "-- NTU"} description="Average prediction error magnitude" />
-        <RegressionStat label="MAE" value={analytics.metrics ? `${formatNtu(analytics.metrics.mae, 3)} NTU` : "-- NTU"} description="Average absolute prediction error" />
-        <RegressionStat label="R² Score" value={analytics.metrics ? formatNtu(analytics.metrics.rSquared, 2) : "--"} description="Regression fit quality" />
-        <RegressionStat label="Prediction Confidence" value={analytics.metrics ? `${Math.round(analytics.metrics.confidence)}%` : "--"} description={analytics.metrics?.confidenceLabel ?? "Waiting for readings"} />
-      </div>
-    </div>
-  );
-}
-
-function RegressionStat({ description, label, value }: { description: string; label: string; value: string }) {
-  return (
-    <article className="min-w-0 rounded-2xl border border-white/10 bg-[#0B1128] px-4 py-3">
-      <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">{label}</p>
-      <p className="mt-2 truncate text-2xl font-extrabold text-white">{value}</p>
-      <p className="mt-1 text-xs text-slate-400">{description}</p>
-    </article>
+    <motion.div
+      whileHover={{ scale: 1.03 }}
+      transition={{ duration: 0.3 }}
+      className={`flex flex-col justify-between rounded-[1.5rem] border p-4 shadow-lg backdrop-blur-md transition-shadow hover:shadow-2xl ${gradientClass} ${className}`}
+    >
+      {children}
+    </motion.div>
   );
 }
 
@@ -793,4 +989,16 @@ function getDeviceStatus(lastReadingTimestamp: string, now = Date.now()) {
   // Allow 40 seconds of inactivity (8x the 5-second send interval) before marking OFFLINE
   // This accounts for WiFi reconnection attempts and network delays
   return seconds <= 40 ? "LIVE" : "OFFLINE";
+}
+
+function ChevronIcon({ direction }: { direction: "left" | "right" }) {
+  return (
+    <svg aria-hidden="true" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+      {direction === "left" ? (
+        <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+      ) : (
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+      )}
+    </svg>
+  );
 }
