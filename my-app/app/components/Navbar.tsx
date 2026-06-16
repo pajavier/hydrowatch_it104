@@ -30,7 +30,7 @@ export function Navbar({ activeScreen, onNavigate, onLogout }: NavbarProps) {
   return (
     <>
       <aside
-        className={`hidden min-h-screen shrink-0 border-r border-white/10 bg-[#0D1430]/95 p-4 transition-[width] duration-300 ease-out lg:flex lg:flex-col ${
+        className={`hidden sticky top-4 z-40 ml-4 h-[calc(100vh-2rem)] shrink-0 rounded-[2rem] border border-white/10 bg-[#0D1430]/40 p-4 shadow-2xl shadow-black/50 backdrop-blur-2xl transition-[width] duration-300 ease-out lg:flex lg:flex-col ${
           isSidebarCollapsed ? "w-24" : "w-72"
         }`}
       >
@@ -77,7 +77,7 @@ export function Navbar({ activeScreen, onNavigate, onLogout }: NavbarProps) {
 
         <button
           aria-label={isSidebarCollapsed ? "Logout" : undefined}
-          className={`flex w-full items-center gap-3 rounded-xl border border-red-400/35 px-3 py-2 text-red-300 transition hover:bg-red-500/10 focus:outline-none focus:ring-2 focus:ring-red-300 ${
+          className={`flex w-full items-center gap-3 rounded-2xl border px-3 py-3 text-left transition-all duration-300 hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-red-300 lg:py-3 border-red-400/20 bg-gradient-to-br from-red-500/10 to-rose-600/5 text-red-300 hover:border-red-400/30 hover:bg-gradient-to-br hover:from-red-500/20 hover:to-rose-600/10 shadow-sm backdrop-blur-md ${
             isSidebarCollapsed ? "justify-center" : ""
           }`}
           onClick={onLogout}
@@ -95,7 +95,7 @@ export function Navbar({ activeScreen, onNavigate, onLogout }: NavbarProps) {
         </button>
       </aside>
 
-      <header className="border-b border-white/10 bg-[#0D1430]/95 lg:hidden">
+      <header className="sticky top-4 z-40 mx-4 mt-4 rounded-3xl border border-white/10 bg-[#0D1430]/40 shadow-2xl shadow-black/50 backdrop-blur-2xl lg:hidden">
         <div className="flex items-center justify-between p-4">
           <div className="flex items-center gap-3">
             <Logo mobile />
@@ -123,8 +123,8 @@ export function Navbar({ activeScreen, onNavigate, onLogout }: NavbarProps) {
         />
 
         <aside
-          className={`fixed left-0 top-0 z-50 h-full w-72 border-r border-white/10 bg-[#0D1430] p-4 shadow-2xl transition-transform duration-300 ease-out ${
-            isMobileOpen ? "translate-x-0" : "-translate-x-full"
+          className={`fixed bottom-4 left-4 top-4 z-50 w-72 rounded-[2rem] border border-white/10 bg-[#0D1430]/60 p-4 shadow-2xl backdrop-blur-2xl transition-transform duration-300 ease-out ${
+            isMobileOpen ? "translate-x-0" : "-translate-x-[120%]"
           }`}
         >
           <div className="flex items-center justify-between">
@@ -171,11 +171,11 @@ function Logo({ mobile = false }: { mobile?: boolean }) {
   return (
     <Image
       alt="Hydrowatch logo"
-      className={mobile ? "h-14 w-14 object-contain" : "h-20 w-20 object-contain"}
-      height={80}
+      className={mobile ? "h-14 w-14 object-contain" : "h-16 w-16 object-contain"}
+      height={mobile ? 56 : 64}
       priority
       src="/hydrowatch-logo.png"
-      width={80}
+      width={mobile ? 56 : 64}
     />
   );
 }
@@ -196,9 +196,9 @@ function NavButton({
   return (
     <button
       aria-label={collapsed ? label : undefined}
-      className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition focus:outline-none focus:ring-2 focus:ring-sky-300 lg:py-2 ${
+      className={`flex w-full items-center gap-3 rounded-2xl border px-3 py-3 text-left transition-all duration-300 hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-sky-300 lg:py-3 ${
         collapsed ? "justify-center" : ""
-      } ${active ? "bg-sky-400/15 text-sky-200" : "text-slate-300 hover:bg-white/10"}`}
+      } ${active ? "border-sky-400/30 bg-gradient-to-br from-sky-500/20 to-blue-600/10 text-sky-100 shadow-lg shadow-sky-900/20 backdrop-blur-md" : "border-white/5 bg-[#0B1128]/40 text-slate-300 hover:border-white/10 hover:bg-white/10 shadow-sm backdrop-blur-sm"}`}
       onClick={onClick}
       title={collapsed ? label : undefined}
       type="button"

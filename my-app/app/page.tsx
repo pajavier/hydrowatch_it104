@@ -189,11 +189,7 @@ export default function App() {
         />
       )}
       {currentScreen === "logs" && (
-        <Logs
-          accessToken={accessToken}
-          logs={system.logs}
-          readings={system.readings}
-        />
+        <Logs logs={system.logs} />
       )}
     </AppLayout>
   );

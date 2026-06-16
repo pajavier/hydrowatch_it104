@@ -2,31 +2,50 @@
 
 import { SystemAlert } from "@/types/hydrowatch";
 import { formatManilaDateTime, formatManilaTime } from "@/utils/time-format";
+import { motion, type Variants } from "framer-motion";
 
 type AlertsProps = {
   alerts: SystemAlert[];
   onAcknowledgeAlert: (alertId: string) => void;
 };
 
-export function Alerts({ alerts, onAcknowledgeAlert }: AlertsProps) {
+const containerVariants: Variants = {
+  hidden: { opacity: 0 },
+  show: {
+    opacity: 1,
+    transition: { staggerChildren: 0.1 }
+  }
+};
+
+const itemVariants: Variants = {
+  hidden: { opacity: 0, y: 20 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.6, ease: "easeOut" } }
+};
+
+export function Alerts({ alerts = [], onAcknowledgeAlert }: AlertsProps) {
   const criticalAlerts = alerts.filter((alert) => alert.severity === "Critical");
   const warningAlerts = alerts.filter((alert) => alert.severity === "Warning");
   const informationalAlerts = alerts.filter((alert) => alert.severity === "Informational");
   const latestAlert = alerts[0] ?? null;
 
   return (
-    <>
-      <div className="mb-5 flex items-center justify-between">
+    <motion.div
+      variants={containerVariants}
+      initial="hidden"
+      animate="show"
+      className="flex flex-col gap-4"
+    >
+      <motion.div variants={itemVariants} className="mb-5 flex items-center justify-between">
         <div>
-          <h2 className="text-3xl font-extrabold">Alerts</h2>
+          <h2 className="text-2xl font-bold">Alerts</h2>
           <p className="text-sm text-slate-400">Priority status feed for dangerous and caution-level water events</p>
         </div>
         <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-bold text-slate-300">
           {alerts.length} total
         </span>
-      </div>
+      </motion.div>
 
-      <section className="grid gap-4 md:grid-cols-3">
+      <motion.section variants={itemVariants} className="grid gap-4 md:grid-cols-3">
         <AlertMetric
           description="Immediate attention required"
           label="Critical"
@@ -49,12 +68,12 @@ export function Alerts({ alerts, onAcknowledgeAlert }: AlertsProps) {
           tone="info"
           value={informationalAlerts.length}
         />
-      </section>
+      </motion.section>
 
-      <section className="mt-5 rounded-3xl border border-white/10 bg-[#111A38] p-5">
+      <motion.section variants={itemVariants} className="mt-5 rounded-3xl border border-white/10 bg-gradient-to-br from-[#111A38] to-[#0B1128] p-5 shadow-2xl">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-sm uppercase tracking-[0.2em] text-sky-300">Alert Queue</p>
+            <p className="text-xs font-medium uppercase tracking-wider text-sky-300">Alert Queue</p>
             <h3 className="mt-1 text-2xl font-extrabold">Realtime Severity Feed</h3>
           </div>
           <div className="flex flex-wrap gap-2 text-xs font-bold">
@@ -88,7 +107,7 @@ export function Alerts({ alerts, onAcknowledgeAlert }: AlertsProps) {
                           {alert.severity}
                         </span>
                         <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
-                          {alert.type.replaceAll("_", " ")}
+                          {alert.type ? String(alert.type).replace(/_/g, " ") : "UNKNOWN"}
                         </span>
                       </div>
                       <h4 className="mt-3 text-lg font-extrabold text-white">{alert.title}</h4>
@@ -97,7 +116,7 @@ export function Alerts({ alerts, onAcknowledgeAlert }: AlertsProps) {
                     </div>
 
                     <div className="grid shrink-0 gap-2 sm:grid-cols-2 lg:w-[240px] lg:grid-cols-1">
-                      <AlertDetail label="NTU Level" tone={tone.detail} value={`${alert.ntuValue} NTU`} />
+                      <AlertDetail label="NTU Level" tone={tone.detail} value={`${alert.ntuValue ?? "--"} NTU`} />
                       <AlertDetail
                         label="Detected"
                         tone={tone.detail}
@@ -117,8 +136,8 @@ export function Alerts({ alerts, onAcknowledgeAlert }: AlertsProps) {
             })}
           </div>
         )}
-      </section>
-    </>
+      </motion.section>
+    </motion.div>
   );
 }
 
@@ -135,14 +154,14 @@ function AlertMetric({
 }) {
   const styles =
     tone === "critical"
-      ? "border-red-400/30 bg-red-500/10 text-red-200"
+      ? "border-red-400/30 bg-gradient-to-br from-red-500/30 to-rose-600/20 text-red-100"
       : tone === "warning"
-        ? "border-yellow-400/30 bg-yellow-500/10 text-yellow-100"
-        : "border-sky-400/30 bg-sky-500/10 text-sky-100";
+        ? "border-amber-400/30 bg-gradient-to-br from-amber-500/30 to-yellow-600/20 text-amber-100"
+        : "border-sky-400/30 bg-gradient-to-br from-sky-500/30 to-cyan-600/20 text-sky-100";
 
   return (
-    <article className={`rounded-3xl border p-4 ${styles}`}>
-      <p className="text-xs font-bold uppercase tracking-[0.18em]">{label}</p>
+    <article className={`rounded-3xl border p-4 shadow-lg backdrop-blur-md ${styles}`}>
+      <p className="text-sm font-bold uppercase tracking-wider">{label}</p>
       <p className="mt-3 text-3xl font-extrabold text-white">{value}</p>
       <p className="mt-2 text-sm text-slate-300">{description}</p>
     </article>
