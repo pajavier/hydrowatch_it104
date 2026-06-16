@@ -78,12 +78,12 @@ export function parseEsp32ReadingPayload(body: unknown): Esp32ReadingPayload {
   }
 
   // Validate turbidity is within expected range (0-5 NTU for sensor, allow 50% margin)
-  if (turbidity > 7.5) {
-    throw new Error(
-      `Turbidity reading ${turbidity} NTU exceeds expected range. Possible sensor malfunction.`,
-    );
+  if (turbidity < 0 || turbidity > 100) {
+      throw new Error(
+          `Invalid turbidity value: ${turbidity} NTU. Expected range is 0-100 NTU.`
+      );
   }
-
+  
   if (createdAt !== undefined && typeof createdAt !== "string") {
     throw new Error("createdAt must be an ISO timestamp string when provided.");
   }
