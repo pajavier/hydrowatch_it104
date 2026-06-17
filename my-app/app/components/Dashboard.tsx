@@ -5,7 +5,7 @@ import { EnvironmentSettings, MonitoringSession, SystemAlert, WaterReading } fro
 import { analyzeTurbidityRegression } from "@/utils/hydrowatch-analytics";
 import { formatManilaDateTime, formatManilaTime, getUtcTimestampMs } from "@/utils/time-format";
 import { getWaterSampleState, WaterSampleVisualization } from "./WaterSampleVisualization";
-import { motion, type Variants } from "framer-motion";
+import { motion, type PanInfo, type Variants } from "framer-motion";
 
 type Props = {
   accessToken: string;
@@ -59,7 +59,6 @@ export function Dashboard({
   waterQualityScore,
   uptimeHours,
 }: Props) {
-  const [currentTime, setCurrentTime] = useState(() => Date.now());
   const [controlError, setControlError] = useState<string | null>(null);
   const latest = readings.at(-1);
   const isMonitoringActive = monitoringSession?.status === "active";
@@ -67,7 +66,12 @@ export function Dashboard({
   const trend = hasValidLatestReading && readings.length > 1 ? latest!.turbidity - readings[readings.length - 2].turbidity : 0;
   const statusTone = latest?.status === "Very Cloudy" ? "critical" : latest?.status === "Cloudy" || latest?.status === "Slightly Cloudy" ? "warning" : "normal";
   const latestEvents = readings.slice(-5).reverse();
-  const deviceStatus = hasValidLatestReading ? getDeviceStatus(latest!.createdAt, currentTime) : "OFFLINE";
+  
+  const [statusClock, setStatusClock] = useState(() => Date.now());
+  const deviceStatus =
+    hasValidLatestReading && latest
+      ? getDeviceStatus(latest.createdAt, statusClock)
+      : "OFFLINE";
   const abnormalEta = latest
     ? latest.predictedCriticalAt
       ? `${formatManilaDateTime(latest.predictedCriticalAt)}`
@@ -77,12 +81,13 @@ export function Dashboard({
     : "Pending";
 
   useEffect(() => {
-    const timer = window.setInterval(() => {
-      setCurrentTime(Date.now());
-    }, 1000);
+    if (!hasValidLatestReading) return;
 
+    const timer = window.setInterval(() => {
+      setStatusClock(Date.now());
+    }, 1000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [hasValidLatestReading, latest?.createdAt]);
 
   return (
     <motion.div 
@@ -107,8 +112,8 @@ export function Dashboard({
 
         <motion.div variants={itemVariants} className="w-full overflow-x-auto pb-4 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
             <div className="grid min-w-[1024px] grid-cols-12 gap-4 xl:min-w-0">
-            <div className="col-span-4 flex flex-col gap-4">
-              <motion.div variants={itemVariants} className="flex-1">
+            <div className="col-span-4 flex flex-col gap-4 self-start">
+              <motion.div variants={itemVariants} className="min-h-0">
                 <MonitoringControl
                   environmentSettings={environmentSettings}
                   error={controlError ?? monitoringError}
@@ -133,7 +138,7 @@ export function Dashboard({
                   }}
                 />
               </motion.div>
-              <motion.div variants={itemVariants} className="flex-1">
+              <motion.div variants={itemVariants} className="min-h-0">
                 {!isLoadingReadings && !hasValidLatestReading && (
                   <PredictionAnalysis
                     abnormalEta="Pending"
@@ -360,18 +365,46 @@ function WaterMonitoringStation({
           <WaterSampleVisualization reading={reading} />
         </div>
 
-        <div className="flex h-full flex-col gap-3">
-          <StationPanel title="Quick Info">
-            <Info label="Health" value={`${healthScore}%`} />
-            <Info label="Quality" value={`${waterQualityScore}%`} />
-            <Info label="Alerts" value={`${alerts.length} active`} />
-            <Info label="Uptime" value={`${uptimeHours} hrs`} />
-            <Info label="Latest" value={latestReading} />
-            <Info label="Session" value={`${accessToken.slice(0, 10)}...`} />
-          </StationPanel>
+        <div className="flex h-full min-w-0 flex-col gap-3">
+          <div className="min-h-0 flex-1">
+            <CardCarousel>
+              <StationPanel title="Quick Info">
+                <Info label="Health" value={`${healthScore}%`} />
+                <Info label="Quality" value={`${waterQualityScore}%`} />
+                <Info label="Alerts" value={`${alerts.length} active`} />
+                <Info label="Uptime" value={`${uptimeHours} hrs`} />
+                <Info label="Latest" value={latestReading} />
+                <Info label="Session" value={`${accessToken.slice(0, 10)}...`} />
+              </StationPanel>
+
+             <StationPanel title="Recent Logs">
+  <div className="flex h-full flex-col">
+    <div className="flex-1 overflow-y-auto pr-2">
+      {latestEvents.length === 0 && (
+        <p className="text-xs text-slate-400">No recent logs.</p>
+      )}
+
+      {latestEvents.map((event) => (
+        <div
+          key={event.id}
+          className="mb-2 flex items-center justify-between rounded-xl bg-white/5 px-3 py-2 transition-colors duration-500"
+        >
+          <span className="text-[10px] text-slate-400">
+            {formatManilaTime(event.createdAt)}
+          </span>
+          <span className="text-xs font-bold text-sky-200">
+            {event.turbidity.toFixed(2)} NTU
+          </span>
+        </div>
+      ))}
+    </div>
+  </div>
+</StationPanel>
+            </CardCarousel>
+          </div>
 
           <StationPanel title="Alerts">
-            <div className="max-h-[140px] overflow-y-auto pr-2">
+            <div className="flex-1 overflow-y-auto pr-2">
               {alerts.length === 0 && <p className="text-xs text-slate-400">No active alerts.</p>}
               {alerts.map((alert) => (
                 <div className="mb-2 rounded-xl bg-white/5 p-2 transition-colors duration-500" key={alert.id}>
@@ -394,6 +427,85 @@ function WaterMonitoringStation({
         </div>
       </div>
     </section>
+  );
+}
+
+function CardCarousel({ children }: { children: ReactNode }) {
+  const [activeIndex, setActiveIndex] = useState(0);
+  const items = (Array.isArray(children) ? children : [children]).flat().filter(Boolean);
+
+  const handleDragEnd = (_event: MouseEvent | TouchEvent | PointerEvent, { offset, velocity }: PanInfo) => {
+    const swipe = offset.x;
+    if ((swipe < -50 || velocity.x < -500) && activeIndex < items.length - 1) {
+      setActiveIndex((prev) => prev + 1);
+    } else if ((swipe > 50 || velocity.x > 500) && activeIndex > 0) {
+      setActiveIndex((prev) => prev - 1);
+    }
+  };
+
+  return (
+    <div className="flex h-full w-full flex-col overflow-hidden">
+      <div className="relative flex-1 overflow-hidden">
+        <motion.div
+          className="flex h-full w-full"
+          drag="x"
+          dragConstraints={{ left: 0, right: 0 }}
+          dragElastic={0.2}
+          onDragEnd={handleDragEnd}
+          animate={{ x: `${activeIndex * -85}%` }}
+          transition={{ type: "spring", stiffness: 300, damping: 30 }}
+        >
+          {items.map((child, index) => (
+            <motion.div
+              key={index}
+              className="w-[85%] flex-shrink-0 pr-3"
+              animate={{
+                opacity: activeIndex === index ? 1 : 0.4,
+                scale: activeIndex === index ? 1 : 0.95,
+              }}
+              transition={{ duration: 0.3 }}
+            >
+              <div className="h-full [&>section]:flex [&>section]:h-full [&>section]:flex-col">
+                {child}
+              </div>
+            </motion.div>
+          ))}
+        </motion.div>
+      </div>
+
+      <div className="mt-3 flex items-center justify-between px-2">
+        <button
+          onClick={() => setActiveIndex(Math.max(0, activeIndex - 1))}
+          disabled={activeIndex === 0}
+          className="rounded-full bg-white/5 p-1.5 text-white transition hover:bg-white/10 disabled:opacity-30"
+          aria-label="Previous Card"
+        >
+          <ChevronIcon direction="left" />
+        </button>
+        
+        <div className="flex gap-2">
+          {items.map((_, i) => (
+            <button
+              key={i}
+              onClick={() => setActiveIndex(i)}
+              aria-label={`Go to card ${i + 1}`}
+              className={`h-1.5 rounded-full transition-all duration-300 ${
+                activeIndex === i ? "w-6 bg-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.8)]" : "w-1.5 bg-white/20 hover:bg-white/40"
+              }`}
+            />
+          ))}
+        </div>
+
+        <button
+          onClick={() => setActiveIndex(Math.min(items.length - 1, activeIndex + 1))}
+          disabled={activeIndex === items.length - 1}
+          className="rounded-full bg-white/5 p-1.5 text-white transition hover:bg-white/10 disabled:opacity-30"
+          aria-label="Next Card"
+        >
+          <ChevronIcon direction="right" />
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -424,7 +536,7 @@ function PredictionAnalysis({
   const accent = tone === "critical" ? "text-red-300" : tone === "warning" ? "text-yellow-300" : "text-sky-200";
 
   return (
-    <section className="flex h-full flex-col justify-between rounded-[2rem] border border-purple-400/20 bg-gradient-to-br from-indigo-500/20 to-violet-600/10 p-5 backdrop-blur-md transition-colors duration-700">
+    <section className="flex flex-col rounded-[2rem] border border-purple-400/20 bg-gradient-to-br from-indigo-500/20 to-violet-600/10 p-5 backdrop-blur-md transition-colors duration-700">
       <div>
         <p className="text-xs font-medium uppercase tracking-wider text-sky-300">Prediction</p>
         <h3 className="text-lg font-semibold">Forecast</h3>
