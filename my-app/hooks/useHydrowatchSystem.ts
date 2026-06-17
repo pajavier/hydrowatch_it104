@@ -25,6 +25,9 @@ const defaultSettings: EngineSettings = {
   predictionAggressiveness: 1,
 };
 
+const acknowledgedAlertsStoragePrefix = "hydrowatch:acknowledged-alerts";
+const acknowledgedAlertsCutoffStoragePrefix = "hydrowatch:acknowledged-alerts-through";
+
 type SupabaseErrorLike = {
   code?: unknown;
   message?: unknown;
@@ -46,6 +49,8 @@ export function useHydrowatchSystem(accessToken: string | null, userId: string |
   const [liveClock, setLiveClock] = useState(() => Date.now());
   const readingsRef = useRef<WaterReading[]>([]);
   const seenReadingIdsRef = useRef<Set<WaterReading["id"]>>(new Set());
+  const acknowledgedAlertIdsRef = useRef<Set<SystemAlert["id"]>>(new Set());
+  const acknowledgedAlertCutoffMsRef = useRef<number | null>(null);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -118,7 +123,11 @@ export function useHydrowatchSystem(accessToken: string | null, userId: string |
         settings.thresholds.criticalMin,
         settings.predictionAggressiveness,
       );
-      const generatedAlerts = evaluateAlerts(enriched, currentReadings, settings);
+      const generatedAlerts = filterAcknowledgedAlerts(
+        evaluateAlerts(enriched, currentReadings, settings),
+        acknowledgedAlertIdsRef.current,
+        acknowledgedAlertCutoffMsRef.current,
+      );
       const logBatch: SystemLog[] = [
         {
           id: crypto.randomUUID(),
@@ -184,6 +193,8 @@ export function useHydrowatchSystem(accessToken: string | null, userId: string |
           hasAccessToken: Boolean(accessToken),
           userId,
         });
+        acknowledgedAlertIdsRef.current = new Set();
+        acknowledgedAlertCutoffMsRef.current = null;
         seenReadingIdsRef.current = new Set();
         readingsRef.current = [];
         setReadings([]);
@@ -200,6 +211,8 @@ export function useHydrowatchSystem(accessToken: string | null, userId: string |
       setIsLoadingReadings(true);
       setIsLoadingMonitoring(true);
       try {
+        acknowledgedAlertIdsRef.current = loadAcknowledgedAlertIds(userId);
+        acknowledgedAlertCutoffMsRef.current = loadAcknowledgedAlertCutoffMs(userId);
         const [databaseReadings, databaseLogs] = await Promise.all([
           fetchWaterReadings({ accessToken, userId }),
           fetchSystemLogs({ accessToken, userId }),
@@ -225,7 +238,11 @@ export function useHydrowatchSystem(accessToken: string | null, userId: string |
 
         databaseReadings.forEach((reading) => {
           const enriched = enrichReading(reading, enrichedReadings);
-          const generatedAlerts = evaluateAlerts(enriched, enrichedReadings, settings);
+          const generatedAlerts = filterAcknowledgedAlerts(
+            evaluateAlerts(enriched, enrichedReadings, settings),
+            acknowledgedAlertIdsRef.current,
+            acknowledgedAlertCutoffMsRef.current,
+          );
           enrichedReadings.push(enriched);
           initialAlerts.unshift(...generatedAlerts);
         });
@@ -332,8 +349,33 @@ export function useHydrowatchSystem(accessToken: string | null, userId: string |
 
   const latest = readings.at(-1);
   const acknowledgeAlert = useCallback((alertId: string) => {
-    setAlerts((prev) => prev.filter((alert) => alert.id !== alertId));
-  }, []);
+    setAlerts((prev) => {
+      const acknowledgedAlert = prev.find((alert) => alert.id === alertId);
+
+      if (userId) {
+        acknowledgedAlertIdsRef.current.add(alertId);
+
+        if (acknowledgedAlert) {
+          const acknowledgedAtMs = getUtcTimestampMs(acknowledgedAlert.timestamp);
+          if (Number.isFinite(acknowledgedAtMs)) {
+            acknowledgedAlertCutoffMsRef.current = Math.max(
+              acknowledgedAlertCutoffMsRef.current ?? 0,
+              acknowledgedAtMs,
+            );
+          }
+        }
+
+        persistAcknowledgedAlertIds(userId, acknowledgedAlertIdsRef.current);
+        persistAcknowledgedAlertCutoffMs(userId, acknowledgedAlertCutoffMsRef.current);
+      }
+
+      return filterAcknowledgedAlerts(
+        prev.filter((alert) => alert.id !== alertId),
+        acknowledgedAlertIdsRef.current,
+        acknowledgedAlertCutoffMsRef.current,
+      );
+    });
+  }, [userId]);
   const saveEnvironment = useCallback(
     async (nextSettings: Omit<EnvironmentSettings, "id" | "userId" | "createdAt" | "updatedAt">) => {
       if (!accessToken || !userId) throw new Error("Authentication required.");
@@ -433,6 +475,87 @@ export function useHydrowatchSystem(accessToken: string | null, userId: string |
     uptimeHours,
     waterQualityScore,
   };
+}
+
+function filterAcknowledgedAlerts(
+  alerts: SystemAlert[],
+  acknowledgedAlertIds: Set<SystemAlert["id"]>,
+  acknowledgedAlertCutoffMs: number | null,
+) {
+  if (acknowledgedAlertIds.size === 0 && acknowledgedAlertCutoffMs === null) return alerts;
+
+  return alerts.filter((alert) => {
+    if (acknowledgedAlertIds.has(alert.id)) return false;
+
+    if (acknowledgedAlertCutoffMs !== null) {
+      const alertTimestampMs = getUtcTimestampMs(alert.timestamp);
+      if (Number.isFinite(alertTimestampMs) && alertTimestampMs <= acknowledgedAlertCutoffMs) {
+        return false;
+      }
+    }
+
+    return true;
+  });
+}
+
+function loadAcknowledgedAlertIds(userId: string) {
+  if (typeof window === "undefined") return new Set<SystemAlert["id"]>();
+
+  try {
+    const raw = window.localStorage.getItem(getAcknowledgedAlertsStorageKey(userId));
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(parsed)) return new Set<SystemAlert["id"]>();
+
+    return new Set(parsed.filter((id): id is string => typeof id === "string"));
+  } catch (error) {
+    console.warn("[HydroWatch Hook] Unable to load acknowledged alerts", error);
+    return new Set<SystemAlert["id"]>();
+  }
+}
+
+function persistAcknowledgedAlertIds(userId: string, acknowledgedAlertIds: Set<SystemAlert["id"]>) {
+  if (typeof window === "undefined") return;
+
+  try {
+    const cappedIds = Array.from(acknowledgedAlertIds).slice(-500);
+    window.localStorage.setItem(getAcknowledgedAlertsStorageKey(userId), JSON.stringify(cappedIds));
+  } catch (error) {
+    console.warn("[HydroWatch Hook] Unable to save acknowledged alerts", error);
+  }
+}
+
+function loadAcknowledgedAlertCutoffMs(userId: string) {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const raw = window.localStorage.getItem(getAcknowledgedAlertsCutoffStorageKey(userId));
+    const cutoffMs = raw ? Number(raw) : null;
+    return cutoffMs !== null && Number.isFinite(cutoffMs) ? cutoffMs : null;
+  } catch (error) {
+    console.warn("[HydroWatch Hook] Unable to load acknowledged alert cutoff", error);
+    return null;
+  }
+}
+
+function persistAcknowledgedAlertCutoffMs(userId: string, acknowledgedAlertCutoffMs: number | null) {
+  if (typeof window === "undefined" || acknowledgedAlertCutoffMs === null) return;
+
+  try {
+    window.localStorage.setItem(
+      getAcknowledgedAlertsCutoffStorageKey(userId),
+      String(acknowledgedAlertCutoffMs),
+    );
+  } catch (error) {
+    console.warn("[HydroWatch Hook] Unable to save acknowledged alert cutoff", error);
+  }
+}
+
+function getAcknowledgedAlertsStorageKey(userId: string) {
+  return `${acknowledgedAlertsStoragePrefix}:${userId}`;
+}
+
+function getAcknowledgedAlertsCutoffStorageKey(userId: string) {
+  return `${acknowledgedAlertsCutoffStoragePrefix}:${userId}`;
 }
 
 function getLoadReadingsErrorMessage(error: unknown) {

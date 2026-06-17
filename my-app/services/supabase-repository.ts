@@ -159,7 +159,8 @@ export async function fetchWaterReadings(scope: UserScope, limit = 150): Promise
     .from("water_readings")
     .select("id,user_id,turbidity,created_at,light_condition,water_type,container_type,water_volume_ml")
     .eq("user_id", scope.userId)
-    .order("created_at", { ascending: true });
+    .order("created_at", { ascending: false })
+    .limit(limit);
 
   const result = isMissingEnvironmentSnapshotColumnError(initialResult.error)
     ? await (async () => {
@@ -176,7 +177,8 @@ export async function fetchWaterReadings(scope: UserScope, limit = 150): Promise
         .from("water_readings")
         .select("id,user_id,turbidity,created_at")
         .eq("user_id", scope.userId)
-        .order("created_at", { ascending: true });
+        .order("created_at", { ascending: false })
+        .limit(limit);
     })()
     : initialResult;
 
@@ -194,12 +196,14 @@ export async function fetchWaterReadings(scope: UserScope, limit = 150): Promise
 
   console.info("[HydroWatch Supabase] fetchWaterReadings query result", {
     returnedRows: data?.length ?? 0,
-    firstRow: data?.[0] ?? null,
-    latestRow: data?.at(-1) ?? null,
+    newestRow: data?.[0] ?? null,
+    oldestReturnedRow: data?.at(-1) ?? null,
     userId: scope.userId,
   });
 
-  const readings = (data ?? []).slice(-limit).map((row) => toWaterReading(row as WaterReadingRow));
+  const readings = [...(data ?? [])]
+    .reverse()
+    .map((row) => toWaterReading(row as WaterReadingRow));
 
   console.info("[HydroWatch Supabase] fetchWaterReadings mapped readings", {
     mappedCount: readings.length,
