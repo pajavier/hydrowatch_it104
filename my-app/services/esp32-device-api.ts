@@ -119,6 +119,7 @@ export async function proxyEsp32Request(
   init?: {
     body?: unknown;
     method?: "GET" | "POST";
+    acceptNetworkDrop?: boolean;
   },
 ) {
   const host = await getRegisteredDeviceIp();
@@ -145,9 +146,21 @@ export async function proxyEsp32Request(
       signal: AbortSignal.timeout(8000),
     });
   } catch (error) {
+    if (init?.acceptNetworkDrop) {
+      return NextResponse.json(
+        {
+          ok: true,
+          accepted: true,
+          warning: formatEsp32ContactError(error),
+          message: "Command sent. The ESP32 may be restarting or changing WiFi.",
+        },
+        { status: 202 },
+      );
+    }
+
     return NextResponse.json(
       {
-        error: error instanceof Error ? `Unable to contact ESP32: ${error.message}` : "Unable to contact ESP32.",
+        error: formatEsp32ContactError(error),
       },
       { status: 502 },
     );
@@ -178,4 +191,13 @@ function parseJsonObject(value: string) {
   } catch {
     return null;
   }
+}
+
+function formatEsp32ContactError(error: unknown) {
+  if (!(error instanceof Error)) return "Unable to contact ESP32.";
+  if (error.name === "TimeoutError" || error.name === "AbortError") {
+    return "Unable to contact ESP32 before the request timed out.";
+  }
+
+  return `Unable to contact ESP32: ${error.message}`;
 }

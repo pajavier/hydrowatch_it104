@@ -23,5 +23,6 @@ export async function POST(req: NextRequest) {
   return proxyEsp32Request("wifi", {
     method: "POST",
     body: { ssid, password },
+    acceptNetworkDrop: true,
   });
 }

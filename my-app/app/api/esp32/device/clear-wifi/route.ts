@@ -5,5 +5,5 @@ export async function POST(req: NextRequest) {
   const auth = await requireHydrowatchUser(req);
   if ("error" in auth) return auth.error;
 
-  return proxyEsp32Request("clear-wifi", { method: "POST" });
+  return proxyEsp32Request("clear-wifi", { method: "POST", acceptNetworkDrop: true });
 }
