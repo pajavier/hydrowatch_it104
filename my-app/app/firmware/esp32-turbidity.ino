@@ -10,9 +10,10 @@ Adafruit_ADS1115 ads;
 
 const char* firmwareVersion = "2.0.0";
 const char* setupApSsid = "HydroWatch-Setup";
-const char* hydrowatchIngestUrl = "http://172.20.10.4:3000/api/esp32/ingest";
+const char* hydrowatchIngestUrl = "https://hydrowatch-it-104.vercel.app/api/esp32/ingest";
 
-const char* hydrowatchDeviceApiKey = "change-this-device-key";
+// Optional. If set, it must match HYDROWATCH_DEVICE_API_KEY in the dashboard environment.
+const char* hydrowatchDeviceApiKey = "";
 
 const int wifiResetButtonPin = 0;
 const unsigned long resetHoldMs = 5000;
@@ -24,10 +25,10 @@ const int maxRetries = 4;
 const unsigned long retryDelayMs[] = {1000, 2000, 4000, 8000};
 const int maxWifiConnectAttempts = 3;
 
-const float ADC_MIN = 100.0;
-const float ADC_MAX = 2900.0;
+const float ADC_MIN = 1800.0;
+const float ADC_MAX = 4050.0;
 const float NTU_MIN = 0.0;
-const float NTU_MAX = 300.0;
+const float NTU_MAX = 100.0;
 
 Preferences preferences;
 WebServer server(80);
@@ -231,7 +232,6 @@ void handleSetupSubmit() {
 }
 
 void handleApiStatus() {
-  if (!isAuthorizedRequest()) return;
   server.send(200, "application/json", deviceStatusJson());
 }
 
@@ -278,13 +278,13 @@ void handleNotFound() {
 }
 
 bool isAuthorizedRequest() {
-  if (String(hydrowatchDeviceApiKey) == "change-this-device-key") {
-    server.send(500, "application/json", "{\"ok\":false,\"error\":\"Device API key is not configured\"}");
-    return false;
+  String configuredKey = String(hydrowatchDeviceApiKey);
+  if (configuredKey.length() == 0 || configuredKey == "change-this-device-key") {
+    return true;
   }
 
   String providedKey = server.header("X-HydroWatch-Key");
-  if (providedKey != String(hydrowatchDeviceApiKey)) {
+  if (providedKey != configuredKey) {
     server.send(401, "application/json", "{\"ok\":false,\"error\":\"Unauthorized\"}");
     return false;
   }
@@ -442,23 +442,14 @@ double readTurbidity() {
   // Gain ONE = 0.125mV per bit
   float voltage = rawADC * 0.125f / 1000.0f;
 
-  // ======== CALIBRATION ========
-  // Change these values after measuring your sensor.
-
-  const float CLEAN_VOLTAGE = 4.20;
-  const float DIRTY_VOLTAGE = 2.50;
-
   double turbidity;
-
-  if (voltage >= CLEAN_VOLTAGE)
-      turbidity = 0;
-
-  else if (voltage <= DIRTY_VOLTAGE)
-      turbidity = 200;
-
-  else
-      turbidity = (CLEAN_VOLTAGE - voltage) *
-                  (200.0 / (CLEAN_VOLTAGE - DIRTY_VOLTAGE));
+  if (rawADC >= ADC_MAX) {
+    turbidity = NTU_MIN;
+  } else if (rawADC <= ADC_MIN) {
+    turbidity = NTU_MAX;
+  } else {
+    turbidity = (ADC_MAX - rawADC) * (NTU_MAX - NTU_MIN) / (ADC_MAX - ADC_MIN);
+  }
 
   Serial.print("[ADS1115] Raw: ");
   Serial.print(rawADC);
@@ -479,7 +470,7 @@ bool isValidReading(double reading) {
     return false;
   }
 
-  if (reading < 0 || reading > 1000) {
+  if (reading < NTU_MIN || reading > NTU_MAX) {
     Serial.print("[HydroWatch] Reading out of range: ");
     Serial.println(reading);
     return false;

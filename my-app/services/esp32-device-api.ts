@@ -10,6 +10,32 @@ type SensorHealthRecord = {
   device_ip_address?: string | null;
 };
 
+export function normalizeEsp32Host(input: string) {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+
+  const candidate = trimmed.startsWith("http://") || trimmed.startsWith("https://")
+    ? trimmed
+    : `http://${trimmed}`;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(candidate);
+  } catch {
+    return null;
+  }
+
+  if ((parsed.protocol !== "http:" && parsed.protocol !== "https:") || !parsed.hostname) {
+    return null;
+  }
+
+  if (parsed.pathname !== "/" || parsed.search || parsed.hash || parsed.username || parsed.password) {
+    return null;
+  }
+
+  return trimmed.replace(/\/+$/, "");
+}
+
 export function getServerSupabaseClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -44,17 +70,33 @@ function getServerAuthClient() {
 
 export async function requireHydrowatchUser(req: NextRequest) {
   const token = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
+  const cookiesPresent = req.cookies.getAll().length > 0;
   if (!token) {
-    return { error: NextResponse.json({ error: "Authentication required" }, { status: 401 }) };
+    return {
+      error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
+      hasSession: false,
+      userId: null,
+      cookiesPresent,
+    };
   }
 
   const authClient = getServerAuthClient();
   const { data, error } = await authClient.auth.getUser(token);
   if (error || !data.user) {
-    return { error: NextResponse.json({ error: "Invalid session" }, { status: 401 }) };
+    return {
+      error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
+      hasSession: false,
+      userId: null,
+      cookiesPresent,
+    };
   }
 
-  return { supabase: getServerSupabaseClient(), userId: data.user.id };
+  return {
+    supabase: getServerSupabaseClient(),
+    userId: data.user.id,
+    hasSession: true,
+    cookiesPresent,
+  };
 }
 
 export async function getRegisteredDeviceIp() {
@@ -82,30 +124,58 @@ export async function proxyEsp32Request(
   const host = await getRegisteredDeviceIp();
   if (!host) {
     return NextResponse.json(
-      { error: "ESP32 IP address is not registered yet. Wait for a reading or set HYDROWATCH_ESP32_HOST." },
+      { error: "ESP32 IP address is not registered yet. Wait for a reading or save the ESP32 host/IP in Settings." },
       { status: 503 },
     );
   }
 
   const apiKey = process.env.HYDROWATCH_DEVICE_API_KEY;
-  if (!apiKey) {
+  const baseUrl = host.startsWith("http://") || host.startsWith("https://") ? host : `http://${host}`;
+  let response: Response;
+  try {
+    const headers = new Headers({ "Content-Type": "application/json" });
+    if (apiKey) {
+      headers.set("X-HydroWatch-Key", apiKey);
+    }
+
+    response = await fetch(`${baseUrl}/api/${command}`, {
+      method: init?.method ?? "GET",
+      headers,
+      body: init?.body === undefined ? undefined : JSON.stringify(init.body),
+      signal: AbortSignal.timeout(8000),
+    });
+  } catch (error) {
     return NextResponse.json(
-      { error: "HYDROWATCH_DEVICE_API_KEY is required for device commands." },
-      { status: 500 },
+      {
+        error: error instanceof Error ? `Unable to contact ESP32: ${error.message}` : "Unable to contact ESP32.",
+      },
+      { status: 502 },
     );
   }
 
-  const baseUrl = host.startsWith("http://") || host.startsWith("https://") ? host : `http://${host}`;
-  const response = await fetch(`${baseUrl}/api/${command}`, {
-    method: init?.method ?? "GET",
-    headers: {
-      "Content-Type": "application/json",
-      "X-HydroWatch-Key": apiKey,
-    },
-    body: init?.body === undefined ? undefined : JSON.stringify(init.body),
-    signal: AbortSignal.timeout(8000),
-  });
+  const responseText = await response.text().catch(() => "");
+  const payload = parseJsonObject(responseText);
+  if (response.status === 404 || responseText.toLowerCase().includes("not found")) {
+    return NextResponse.json(
+      {
+        ok: false,
+        code: "ESP32_REMOTE_MANAGEMENT_UNSUPPORTED",
+        error: "ESP32 firmware does not support remote management.",
+      },
+      { status: 501 },
+    );
+  }
 
-  const payload = await response.json().catch(() => null);
   return NextResponse.json(payload ?? { ok: response.ok }, { status: response.status });
+}
+
+function parseJsonObject(value: string) {
+  if (!value.trim()) return null;
+
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return typeof parsed === "object" && parsed !== null ? parsed : null;
+  } catch {
+    return null;
+  }
 }

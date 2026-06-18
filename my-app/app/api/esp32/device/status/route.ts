@@ -13,6 +13,11 @@ function isMissingSensorHealthTableError(error: unknown) {
 
 export async function GET(req: NextRequest) {
   const auth = await requireHydrowatchUser(req);
+  console.log("[ESP32 STATUS]", {
+    hasSession: auth.hasSession,
+    userId: auth.userId,
+    cookiesPresent: auth.cookiesPresent,
+  });
   if ("error" in auth) return auth.error;
 
   const supabase = getServerSupabaseClient();
@@ -20,7 +25,7 @@ export async function GET(req: NextRequest) {
   const { data: healthData, error } = await supabase
     .from("sensor_health")
     .select(
-      "sensor_status,last_reading_at,last_successful_post_at,consecutive_failures,signal_strength_dbm,current_ssid,current_ip_address,device_id,mac_address,firmware_version,setup_mode,updated_at",
+      "sensor_status,last_reading_at,last_successful_post_at,consecutive_failures,signal_strength_dbm,current_ssid,current_ip_address,device_ip_address,device_id,mac_address,firmware_version,setup_mode,updated_at",
     )
     .eq("user_id", sensorUserId)
     .single();
@@ -41,11 +46,14 @@ export async function GET(req: NextRequest) {
     return null;
   });
   const directPayload = directStatus ? await directStatus.json().catch(() => null) : null;
+  const isUnsupportedFirmware = directPayload?.code === "ESP32_REMOTE_MANAGEMENT_UNSUPPORTED";
 
   return NextResponse.json({
     ok: true,
     database: healthData ?? null,
     device: directPayload?.ok ? directPayload.device ?? directPayload : null,
     directReachable: Boolean(directPayload?.ok),
+    remoteManagementSupported: !isUnsupportedFirmware,
+    managementMessage: isUnsupportedFirmware ? "ESP32 firmware does not support remote management." : null,
   });
 }

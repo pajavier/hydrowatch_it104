@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { ContainerType, EngineSettings, EnvironmentSettings, LightCondition, WaterType } from "@/types/hydrowatch";
+import { getSupabaseClient } from "@/utils/supabase/client";
 import { motion, type Variants } from "framer-motion";
 
 type SettingsProps = {
@@ -22,6 +23,7 @@ type DeviceStatusResponse = {
     signal_strength_dbm?: number | null;
     current_ssid?: string | null;
     current_ip_address?: string | null;
+    device_ip_address?: string | null;
     device_id?: string | null;
     mac_address?: string | null;
     firmware_version?: string | null;
@@ -40,6 +42,13 @@ type DeviceStatusResponse = {
     setupMode?: boolean;
   } | null;
   directReachable?: boolean;
+  remoteManagementSupported?: boolean;
+  managementMessage?: string | null;
+};
+
+type Esp32ApiError = Error & {
+  status?: number;
+  code?: string;
 };
 
 const lightConditionOptions: LightCondition[] = ["Present", "Not Present"];
@@ -63,6 +72,7 @@ export function Settings({ accessToken, environmentSettings, settings, onSave, o
   const [deviceStatus, setDeviceStatus] = useState<DeviceStatusResponse | null>(null);
   const [ssid, setSsid] = useState("");
   const [password, setPassword] = useState("");
+  const [deviceHost, setDeviceHost] = useState("");
   const [isDeviceLoading, setIsDeviceLoading] = useState(false);
   const [deviceMessage, setDeviceMessage] = useState<string | null>(null);
   const [deviceError, setDeviceError] = useState<string | null>(null);
@@ -75,7 +85,7 @@ export function Settings({ accessToken, environmentSettings, settings, onSave, o
     return {
       status: direct?.status ?? database?.sensor_status ?? "UNKNOWN",
       ssid: nonEmptyText(direct?.ssid ?? database?.current_ssid, "Not connected"),
-      ipAddress: nonEmptyText(direct?.ipAddress ?? database?.current_ip_address, "Unknown"),
+      ipAddress: nonEmptyText(direct?.ipAddress ?? database?.current_ip_address ?? database?.device_ip_address, "Unknown"),
       lastSeen: database?.updated_at ?? database?.last_reading_at ?? direct?.lastSeen ?? null,
       rssi,
       signalStrength: formatSignalStrength(rssi),
@@ -84,8 +94,39 @@ export function Settings({ accessToken, environmentSettings, settings, onSave, o
       macAddress: nonEmptyText(direct?.macAddress ?? database?.mac_address, "Unknown"),
       setupMode: direct?.setupMode ?? database?.setup_mode ?? false,
       directReachable: Boolean(deviceStatus?.directReachable),
+      remoteManagementSupported: deviceStatus?.remoteManagementSupported ?? true,
     };
   }, [deviceStatus]);
+
+  const fetchEsp32Api = useCallback(async <T,>(path: string, init?: RequestInit) => {
+    const token = await getCurrentAccessToken(accessToken);
+    if (!token) {
+      throw createEsp32ApiError("Please log in again.", 401);
+    }
+
+    const headers = new Headers(init?.headers);
+    if (init?.body && !headers.has("Content-Type")) {
+      headers.set("Content-Type", "application/json");
+    }
+    headers.set("Authorization", `Bearer ${token}`);
+
+    const response = await fetch(path, {
+      ...init,
+      credentials: "include",
+      headers,
+    });
+    const payload = (await response.json().catch(() => null)) as (T & { error?: string; code?: string }) | null;
+
+    if (!response.ok) {
+      throw createEsp32ApiError(
+        formatEsp32ApiError(response.status, payload?.error),
+        response.status,
+        payload?.code,
+      );
+    }
+
+    return payload as T;
+  }, [accessToken]);
 
   const refreshDeviceStatus = useCallback(async (options?: { quiet?: boolean }) => {
     if (!options?.quiet) {
@@ -94,20 +135,21 @@ export function Settings({ accessToken, environmentSettings, settings, onSave, o
     }
 
     try {
-      const response = await fetch("/api/esp32/device/status", {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      const payload = (await response.json()) as DeviceStatusResponse & { error?: string };
-      if (!response.ok) throw new Error(payload.error ?? "Unable to load ESP32 status.");
+      const payload = await fetchEsp32Api<DeviceStatusResponse>("/api/esp32/device/status");
       setDeviceStatus(payload);
+      const knownHost = payload.database?.current_ip_address ?? payload.database?.device_ip_address ?? payload.device?.ipAddress;
+      if (knownHost) {
+        setDeviceHost((currentHost) => currentHost.trim() ? currentHost : knownHost);
+      }
     } catch (error) {
-      if (!options?.quiet) {
+      const apiError = error as Esp32ApiError;
+      if (!options?.quiet || apiError.status === 401 || apiError.code === "ESP32_REMOTE_MANAGEMENT_UNSUPPORTED") {
         setDeviceError(error instanceof Error ? error.message : "Unable to load ESP32 status.");
       }
     } finally {
       if (!options?.quiet) setIsDeviceLoading(false);
     }
-  }, [accessToken]);
+  }, [fetchEsp32Api]);
 
   useEffect(() => {
     const initialTimer = window.setTimeout(() => void refreshDeviceStatus({ quiet: true }), 0);
@@ -125,21 +167,36 @@ export function Settings({ accessToken, environmentSettings, settings, onSave, o
     setDeviceMessage(null);
 
     try {
-      const response = await fetch("/api/esp32/device/wifi", {
+      await fetchEsp32Api<{ ok?: boolean; error?: string }>("/api/esp32/device/wifi", {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
-        },
         body: JSON.stringify({ ssid, password }),
       });
-      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-      if (!response.ok) throw new Error(payload?.error ?? "Unable to save WiFi configuration.");
       setPassword("");
       setDeviceMessage("WiFi configuration sent. The ESP32 will reconnect automatically.");
       await refreshDeviceStatus({ quiet: true });
     } catch (error) {
       setDeviceError(error instanceof Error ? error.message : "Unable to save WiFi configuration.");
+    } finally {
+      setIsDeviceLoading(false);
+    }
+  };
+
+  const submitDeviceHost = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setIsDeviceLoading(true);
+    setDeviceError(null);
+    setDeviceMessage(null);
+
+    try {
+      const payload = await fetchEsp32Api<{ ok?: boolean; error?: string; host?: string }>("/api/esp32/device/host", {
+        method: "POST",
+        body: JSON.stringify({ host: deviceHost }),
+      });
+      if (payload?.host) setDeviceHost(payload.host);
+      setDeviceMessage("ESP32 host saved.");
+      await refreshDeviceStatus({ quiet: true });
+    } catch (error) {
+      setDeviceError(error instanceof Error ? error.message : "Unable to save ESP32 host.");
     } finally {
       setIsDeviceLoading(false);
     }
@@ -151,12 +208,9 @@ export function Settings({ accessToken, environmentSettings, settings, onSave, o
     setDeviceMessage(null);
 
     try {
-      const response = await fetch(`/api/esp32/device/${action}`, {
+      await fetchEsp32Api<{ ok?: boolean; error?: string }>(`/api/esp32/device/${action}`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${accessToken}` },
       });
-      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-      if (!response.ok) throw new Error(payload?.error ?? "Device command failed.");
       setDeviceMessage(action === "restart" ? "Restart command sent." : "WiFi credentials cleared. Device will boot into setup mode.");
       await refreshDeviceStatus({ quiet: true });
     } catch (error) {
@@ -236,6 +290,26 @@ export function Settings({ accessToken, environmentSettings, settings, onSave, o
           <StatusItem label="MAC Address" value={device.macAddress} />
         </div>
 
+        <form className="mt-5 grid gap-3 lg:grid-cols-[1fr_auto]" onSubmit={submitDeviceHost}>
+          <label className="block">
+            <span className="mb-1 block text-sm text-slate-300">ESP32 Host / IP Address</span>
+            <input
+              className="w-full rounded-xl bg-[#0B1128] px-3 py-2"
+              value={deviceHost}
+              onChange={(event) => setDeviceHost(event.target.value)}
+              placeholder="192.168.1.42"
+              required
+            />
+          </label>
+          <button
+            className="self-end rounded-xl border border-white/10 px-4 py-2 font-bold text-sky-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
+            type="submit"
+            disabled={isDeviceLoading}
+          >
+            Save Host
+          </button>
+        </form>
+
         <form className="mt-5 grid gap-3 lg:grid-cols-[1fr_1fr_auto]" onSubmit={submitWifiConfiguration}>
           <label className="block">
             <span className="mb-1 block text-sm text-slate-300">WiFi SSID</span>
@@ -295,6 +369,11 @@ export function Settings({ accessToken, environmentSettings, settings, onSave, o
         {device.setupMode && (
           <p className="mt-3 rounded-xl border border-amber-300/30 bg-amber-400/10 px-3 py-2 text-sm font-semibold text-amber-100">
             Setup mode is active. Connect to HydroWatch-Setup to configure WiFi locally.
+          </p>
+        )}
+        {deviceStatus?.remoteManagementSupported === false && (
+          <p className="mt-3 rounded-xl border border-amber-300/30 bg-amber-400/10 px-3 py-2 text-sm font-semibold text-amber-100">
+            {deviceStatus.managementMessage ?? "ESP32 firmware does not support remote management."}
           </p>
         )}
         {deviceMessage && <p className="mt-3 text-sm font-semibold text-sky-200">{deviceMessage}</p>}
@@ -462,6 +541,37 @@ function toNullableNumber(value: number | string | null | undefined) {
   }
 
   return null;
+}
+
+async function getCurrentAccessToken(fallbackAccessToken: string) {
+  const supabase = getSupabaseClient();
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  const expiresAtMs = session?.expires_at ? session.expires_at * 1000 : null;
+
+  if (expiresAtMs && expiresAtMs <= Date.now() + 60_000) {
+    const {
+      data: { session: refreshedSession },
+    } = await supabase.auth.refreshSession();
+
+    return refreshedSession?.access_token ?? null;
+  }
+
+  return session?.access_token ?? fallbackAccessToken;
+}
+
+function createEsp32ApiError(message: string, status?: number, code?: string) {
+  const error = new Error(message) as Esp32ApiError;
+  error.status = status;
+  error.code = code;
+  return error;
+}
+
+function formatEsp32ApiError(status: number, error?: string) {
+  if (status === 401) return "Please log in again.";
+  if (error === "Invalid session" || error === "Unauthorized") return "Please log in again.";
+  return error ?? "Unable to contact ESP32 device.";
 }
 
 function NumericInput({
