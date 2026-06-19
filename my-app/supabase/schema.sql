@@ -77,6 +77,7 @@ alter table water_readings drop column if exists source;
 create table if not exists alerts (
   id uuid primary key default gen_random_uuid(),
   user_id uuid references auth.users(id) on delete cascade,
+  device_id text,
   severity text not null,
   type text not null,
   message text not null,
@@ -88,6 +89,8 @@ alter table alerts
   add column if not exists user_id uuid references auth.users(id) on delete cascade;
 alter table alerts
   alter column user_id set default auth.uid();
+alter table alerts
+  add column if not exists device_id text;
 
 create table if not exists predictions (
   id uuid primary key default gen_random_uuid(),
@@ -120,6 +123,7 @@ alter table system_logs
 
 create index if not exists water_readings_user_created_at_idx on water_readings (user_id, created_at);
 create index if not exists alerts_user_created_at_idx on alerts (user_id, created_at);
+create index if not exists alerts_device_dedupe_idx on alerts (user_id, device_id, type, severity, created_at desc);
 create index if not exists predictions_user_created_at_idx on predictions (user_id, created_at);
 create index if not exists system_logs_user_created_at_idx on system_logs (user_id, created_at);
 create index if not exists sensor_health_user_idx on sensor_health (user_id);

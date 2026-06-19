@@ -33,6 +33,17 @@ export type SystemLogRow = {
   created_at: string;
 };
 
+export type AlertRow = {
+  action: string;
+  created_at: string;
+  device_id?: string | null;
+  id: string;
+  message: string;
+  severity: SystemAlert["severity"];
+  type: SystemAlert["type"];
+  user_id: string;
+};
+
 export type NewWaterReadingInput = {
   accessToken: string;
   turbidity: number;
@@ -109,6 +120,26 @@ function toSystemLog(row: SystemLogRow): SystemLog {
     message: row.message,
     timestamp: row.created_at,
   };
+}
+
+function toSystemAlert(row: AlertRow): SystemAlert {
+  return {
+    id: row.id,
+    severity: row.severity,
+    title: getAlertTitle(row),
+    type: row.type,
+    message: row.message,
+    action: row.action,
+    deviceId: row.device_id ?? null,
+    timestamp: row.created_at,
+  };
+}
+
+function getAlertTitle(row: Pick<AlertRow, "severity" | "type">) {
+  if (row.type === "rapid_increase") return "Rapid Increase";
+  if (row.type === "sensor_stability") return "Sensor Stability Check";
+  if (row.severity === "Critical") return "Critical Turbidity";
+  return "Turbidity Alert";
 }
 
 function toEnvironmentSettings(row: EnvironmentSettingsRow): EnvironmentSettings {
@@ -267,6 +298,45 @@ export async function fetchSystemLogs(scope: UserScope, limit = 300): Promise<Sy
   });
 
   return logs;
+}
+
+export async function fetchLatestAlert(scope: UserScope): Promise<SystemAlert | null> {
+  console.info("[HydroWatch Supabase] fetchLatestAlert started", {
+    table: "alerts",
+    limit: 1,
+    userId: scope.userId,
+  });
+
+  const client = getDataSupabaseClient(scope.accessToken);
+  if (!client) {
+    console.error("[HydroWatch Supabase] fetchLatestAlert aborted: data client is null");
+    throw new Error("Supabase environment variables are not configured.");
+  }
+
+  const { data, error } = await client
+    .from("alerts")
+    .select("id,user_id,device_id,severity,type,message,action,created_at")
+    .eq("user_id", scope.userId)
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  if (error) {
+    console.error("[HydroWatch Supabase] fetchLatestAlert query error", {
+      message: error.message,
+      code: error.code,
+      details: error.details,
+      hint: error.hint,
+    });
+    throw error;
+  }
+
+  const latestAlert = data?.[0] ? toSystemAlert(data[0] as AlertRow) : null;
+
+  console.info("[HydroWatch Supabase] fetchLatestAlert mapped alert", {
+    latestAlert,
+  });
+
+  return latestAlert;
 }
 
 export async function insertEsp32WaterReading(input: NewWaterReadingInput) {
@@ -516,6 +586,71 @@ export function subscribeToWaterReadings(
 
   return () => {
     console.info("[HydroWatch Realtime] Removing water_readings channel");
+    client.removeChannel(channel);
+  };
+}
+
+export function subscribeToAlerts(
+  scope: UserScope,
+  onInsert: (alert: SystemAlert) => void,
+) {
+  console.info("[HydroWatch Realtime] subscribeToAlerts starting", {
+    schema: "public",
+    table: "alerts",
+    event: "INSERT",
+    userId: scope.userId,
+  });
+
+  const client = getDataSupabaseClient(scope.accessToken);
+  if (!client) {
+    console.error("[HydroWatch Realtime] Alert subscription aborted: data client is null");
+    return () => undefined;
+  }
+
+  const channel = client
+    .channel("hydrowatch-alerts")
+    .on(
+      "postgres_changes",
+      {
+        event: "INSERT",
+        schema: "public",
+        table: "alerts",
+        filter: `user_id=eq.${scope.userId}`,
+      },
+      (payload) => {
+        console.info("[HydroWatch Realtime] Alert INSERT payload received", payload);
+        const row = (payload as { new?: unknown }).new;
+        if (!row || typeof row !== "object") {
+          console.warn("[HydroWatch Realtime] Alert payload did not include a valid new row", payload);
+          return;
+        }
+
+        onInsert(toSystemAlert(row as AlertRow));
+      },
+    )
+    .subscribe((status, error) => {
+      const statusDetails = {
+        status,
+        error: error
+          ? {
+              message: error.message,
+              name: error.name,
+            }
+          : null,
+      };
+
+      if (status === "SUBSCRIBED") {
+        console.info("[HydroWatch Realtime] Alert channel subscribed", statusDetails);
+        return;
+      }
+
+      if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+        console.warn("[HydroWatch Realtime] Alert channel connection issue", statusDetails);
+      }
+    });
+
+  return () => {
+    console.info("[HydroWatch Realtime] Removing alerts channel");
     client.removeChannel(channel);
   };
 }

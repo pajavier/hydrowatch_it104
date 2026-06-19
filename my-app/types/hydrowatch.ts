@@ -40,7 +40,8 @@ export type SystemAlert = {
   type: "high_turbidity" | "rapid_increase" | "sensor_stability";
   message: string;
   action: string;
-  ntuValue: number;
+  deviceId?: string | null;
+  ntuValue?: number;
   timestamp: string;
 };
 

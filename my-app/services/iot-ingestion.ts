@@ -1,6 +1,8 @@
 import { createClient } from "@supabase/supabase-js";
 import { getActiveSensorUserId } from "@/config/hydrowatch-admin";
+import { HYDROWATCH_SENSOR_ID } from "@/config/hydrowatch-sensor";
 import { evaluateAlerts } from "@/services/alert-engine";
+import { sendAlertEmail } from "@/services/alert-notifications";
 import { ContainerType, EngineSettings, LightCondition, SystemLog, WaterReading, WaterType } from "@/types/hydrowatch";
 import { Database } from "@/types/database.types";
 import { classifyTurbidity, predictTurbidity } from "@/utils/hydrowatch-analytics";
@@ -24,6 +26,7 @@ const ingestionSettings: EngineSettings = {
   refreshIntervalMs: 2500,
   predictionAggressiveness: 1,
 };
+const ALERT_DUPLICATE_WINDOW_MINUTES = 30;
 
 type WaterReadingRecord = {
   created_at: string;
@@ -104,6 +107,8 @@ export function parseEsp32ReadingPayload(body: unknown): Esp32ReadingPayload {
 type ServerSupabaseClient = ReturnType<typeof getServerSupabaseClient>;
 type SensorHealthInsert = Database["public"]["Tables"]["sensor_health"]["Insert"];
 type SensorHealthUpdate = Database["public"]["Tables"]["sensor_health"]["Update"];
+type AlertInsert = Database["public"]["Tables"]["alerts"]["Insert"];
+type AlertRow = Database["public"]["Tables"]["alerts"]["Row"];
 
 export async function ingestEsp32Reading(payload: Esp32ReadingPayload) {
   const supabase = getServerSupabaseClient();
@@ -164,7 +169,7 @@ export async function ingestEsp32Reading(payload: Esp32ReadingPayload) {
   // Update sensor health tracking
   await updateSensorHealth(supabase, assignedUserId, "success", payload);
 
-  await storeDerivedOwnerData(toWaterReading(typedData as WaterReadingRecord), history);
+  await storeDerivedOwnerData(toWaterReading(typedData as WaterReadingRecord), history, getAlertDeviceId(payload));
   return typedData;
 }
 
@@ -214,7 +219,7 @@ async function fetchAssignedUserReadingHistory(userId: string) {
   return ((data ?? []) as WaterReadingRecord[]).reverse().map(toWaterReading);
 }
 
-async function storeDerivedOwnerData(reading: OwnerWaterReading, history: WaterReading[]) {
+async function storeDerivedOwnerData(reading: OwnerWaterReading, history: WaterReading[], deviceId: string) {
   const supabase = getServerSupabaseClient();
   console.info("[HydroWatch Ingestion] Derived writes starting", {
     insertedReadingId: reading.id,
@@ -297,20 +302,9 @@ async function storeDerivedOwnerData(reading: OwnerWaterReading, history: WaterR
     destinationTable: "alerts",
     count: generatedAlerts.length,
     hasReadingId: false,
+    deviceId,
   });
-  const alertsResult = generatedAlerts.length > 0
-    ? supabase.from("alerts").insert(
-        generatedAlerts.map((alert) => ({
-          id: alert.id,
-          user_id: reading.userId,
-          severity: alert.severity,
-          type: alert.type,
-          message: alert.message,
-          action: alert.action,
-          created_at: alert.timestamp,
-        })),
-      )
-    : Promise.resolve({ data: null, error: null });
+  const alertsResult = await insertAlertsWithSuppression(supabase, generatedAlerts, reading.userId, deviceId);
 
   console.info("[HydroWatch Ingestion] Inserting derived rows", {
     destinationTable: "system_logs",
@@ -328,16 +322,129 @@ async function storeDerivedOwnerData(reading: OwnerWaterReading, history: WaterR
     })),
   );
 
-  const resolvedAlertsResult = await alertsResult;
-  const results = [predictionResult, resolvedAlertsResult, logsResult];
+  const results = [predictionResult, alertsResult, logsResult];
   console.info("[HydroWatch Ingestion] Derived write results", {
     predictions: summarizeSupabaseResult(predictionResult),
-    alerts: summarizeSupabaseResult(resolvedAlertsResult),
+    alerts: summarizeSupabaseResult(alertsResult),
     systemLogs: summarizeSupabaseResult(logsResult),
   });
 
   const derivedError = results.find((result) => "error" in result && result.error)?.error;
   if (derivedError) throw derivedError;
+}
+
+async function insertAlertsWithSuppression(
+  supabase: ServerSupabaseClient,
+  alerts: ReturnType<typeof evaluateAlerts>,
+  userId: string,
+  deviceId: string,
+) {
+  if (alerts.length === 0) {
+    return { data: null, error: null };
+  }
+
+  const insertedRows: AlertRow[] = [];
+
+  for (const alert of alerts) {
+    const decision = await getAlertInsertDecision(supabase, alert, userId, deviceId);
+
+    if (decision.suppressed) {
+      console.info("[HydroWatch Alerts] Duplicate alert suppressed", {
+        deviceId,
+        type: alert.type,
+        severity: alert.severity,
+        windowMinutes: ALERT_DUPLICATE_WINDOW_MINUTES,
+      });
+      continue;
+    }
+
+    const insertPayload: AlertInsert = {
+      id: alert.id,
+      user_id: userId,
+      device_id: deviceId,
+      severity: alert.severity,
+      type: alert.type,
+      message: alert.message,
+      action: alert.action,
+      created_at: alert.timestamp,
+    };
+    const { data, error } = await supabase
+      .from("alerts")
+      .insert(insertPayload)
+      .select("id,user_id,device_id,severity,type,message,action,created_at")
+      .single();
+
+    if (error) {
+      return { data: insertedRows, error };
+    }
+
+    insertedRows.push(data as AlertRow);
+
+    if (shouldSendAlertEmail(alert, decision.reason)) {
+      await sendAlertEmail({ alert: { ...alert, deviceId }, deviceId, supabase, userId });
+    }
+  }
+
+  return { data: insertedRows, error: null };
+}
+
+async function getAlertInsertDecision(
+  supabase: ServerSupabaseClient,
+  alert: ReturnType<typeof evaluateAlerts>[number],
+  userId: string,
+  deviceId: string,
+): Promise<{ reason: "critical_spike" | "duplicate" | "normal" | "severity_escalation"; suppressed: boolean }> {
+  const duplicateWindowStart = new Date(Date.now() - ALERT_DUPLICATE_WINDOW_MINUTES * 60 * 1000).toISOString();
+  const { data, error } = await supabase
+    .from("alerts")
+    .select("id,severity,type,device_id,created_at")
+    .eq("user_id", userId)
+    .eq("device_id", deviceId)
+    .eq("type", alert.type)
+    .gte("created_at", duplicateWindowStart)
+    .order("created_at", { ascending: false });
+
+  if (error) throw error;
+
+  const recentAlerts = (data ?? []) as Pick<AlertRow, "created_at" | "device_id" | "id" | "severity" | "type">[];
+  const isSeverityEscalation = recentAlerts.some(
+    (recentAlert) => severityRank(alert.severity) > severityRank(recentAlert.severity),
+  );
+  if (isSeverityEscalation) {
+    return { reason: "severity_escalation", suppressed: false };
+  }
+
+  if (isCriticalSpike(alert)) {
+    return { reason: "critical_spike", suppressed: false };
+  }
+
+  const isDuplicate = recentAlerts.some((recentAlert) => recentAlert.severity === alert.severity);
+  if (isDuplicate) {
+    return { reason: "duplicate", suppressed: true };
+  }
+
+  return { reason: "normal", suppressed: false };
+}
+
+function shouldSendAlertEmail(
+  alert: ReturnType<typeof evaluateAlerts>[number],
+  reason: "critical_spike" | "duplicate" | "normal" | "severity_escalation",
+) {
+  return reason !== "duplicate" && (alert.severity === "Critical" || reason === "severity_escalation");
+}
+
+function isCriticalSpike(alert: ReturnType<typeof evaluateAlerts>[number]) {
+  return alert.severity === "Critical" && alert.type === "high_turbidity" && alert.title === "Critical Value Detected";
+}
+
+function severityRank(severity: "Critical" | "Informational" | "Warning") {
+  if (severity === "Critical") return 3;
+  if (severity === "Warning") return 2;
+  return 1;
+}
+
+function getAlertDeviceId(payload: Esp32ReadingPayload) {
+  return payload.deviceId ?? payload.macAddress ?? HYDROWATCH_SENSOR_ID;
 }
 
 function summarizeSupabaseResult(result: { error?: unknown }) {

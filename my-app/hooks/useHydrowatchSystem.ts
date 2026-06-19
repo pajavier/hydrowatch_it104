@@ -3,14 +3,13 @@ import { evaluateAlerts } from "@/services/alert-engine";
 import {
   fetchActiveMonitoringSession,
   fetchEnvironmentSettings,
+  fetchLatestAlert,
   fetchSystemLogs,
   fetchWaterReadings,
-  insertAlerts,
-  insertLogs,
-  insertPrediction,
   saveEnvironmentSettings,
   startMonitoringSession,
   stopMonitoringSession,
+  subscribeToAlerts,
   subscribeToWaterReadings,
   waterReadingFromRealtimePayload,
 } from "@/services/supabase-repository";
@@ -180,23 +179,13 @@ export function useHydrowatchSystem(accessToken: string | null, userId: string |
         latest: readingsRef.current.at(-1),
       });
 
-      setAlerts((prev) => [...generatedAlerts, ...prev].slice(0, 40));
       setLogs((prev) => [...logBatch, ...prev].slice(0, 300));
 
-      if (!persistDerivedData) return;
-
-      await Promise.allSettled([
-          insertPrediction({
-            accessToken,
-            readingId: enriched.id,
-            label: prediction.label,
-            confidence: prediction.confidence,
-            projectedNTU: prediction.projectedNTU,
-            userId,
-          }),
-          insertAlerts(generatedAlerts, { accessToken, userId }),
-          insertLogs(logBatch, { accessToken, userId }),
-        ]);
+      if (persistDerivedData) {
+        console.info("[HydroWatch Hook] Derived persistence is handled server-side for realtime readings", {
+          readingId: enriched.id,
+        });
+      }
     },
     [accessToken, enrichReading, settings, userId],
   );
@@ -231,9 +220,10 @@ export function useHydrowatchSystem(accessToken: string | null, userId: string |
       try {
         acknowledgedAlertIdsRef.current = loadAcknowledgedAlertIds(userId);
         acknowledgedAlertCutoffMsRef.current = loadAcknowledgedAlertCutoffMs(userId);
-        const [databaseReadings, databaseLogs] = await Promise.all([
+        const [databaseReadings, databaseLogs, latestAlert] = await Promise.all([
           fetchWaterReadings({ accessToken, userId }),
           fetchSystemLogs({ accessToken, userId }),
+          fetchLatestAlert({ accessToken, userId }),
         ]);
         const monitoringResult = await loadMonitoringState(accessToken, userId);
         console.info("[HydroWatch Hook] fetchWaterReadings returned", {
@@ -252,17 +242,10 @@ export function useHydrowatchSystem(accessToken: string | null, userId: string |
         setReadingsError(null);
 
         const enrichedReadings: WaterReading[] = [];
-        const initialAlerts: SystemAlert[] = [];
 
         databaseReadings.forEach((reading) => {
           const enriched = enrichReading(reading, enrichedReadings);
-          const generatedAlerts = filterAcknowledgedAlerts(
-            evaluateAlerts(enriched, enrichedReadings, settings),
-            acknowledgedAlertIdsRef.current,
-            acknowledgedAlertCutoffMsRef.current,
-          );
           enrichedReadings.push(enriched);
-          initialAlerts.unshift(...generatedAlerts);
         });
 
         seenReadingIdsRef.current = new Set(enrichedReadings.map((reading) => reading.id));
@@ -275,7 +258,11 @@ export function useHydrowatchSystem(accessToken: string | null, userId: string |
           seenIds: seenReadingIdsRef.current.size,
         });
 
-        setAlerts(initialAlerts.slice(0, 40));
+        setAlerts(filterAcknowledgedAlerts(
+          latestAlert ? [latestAlert] : [],
+          acknowledgedAlertIdsRef.current,
+          acknowledgedAlertCutoffMsRef.current,
+        ));
         setLogs(databaseLogs);
         setEnvironmentSettings(monitoringResult.environmentSettings);
         setMonitoringSession(monitoringResult.monitoringSession);
@@ -351,6 +338,31 @@ export function useHydrowatchSystem(accessToken: string | null, userId: string |
       void recordReading(reading, true);
     });
   }, [accessToken, isBrowserOnline, isRealtimeEnabled, recordReading, userId]);
+
+  useEffect(() => {
+    console.info("[HydroWatch Hook] Alert realtime effect evaluated", {
+      currentAuthenticatedUser: userId,
+      isBrowserOnline,
+    });
+
+    if (!accessToken || !userId) {
+      console.warn("[HydroWatch Hook] Alert subscription skipped because no user is authenticated");
+      return;
+    }
+
+    if (!isBrowserOnline) {
+      console.warn("[HydroWatch Hook] Alert subscription paused because the browser is offline");
+      return;
+    }
+
+    return subscribeToAlerts({ accessToken, userId }, (alert) => {
+      setAlerts(filterAcknowledgedAlerts(
+        [alert],
+        acknowledgedAlertIdsRef.current,
+        acknowledgedAlertCutoffMsRef.current,
+      ));
+    });
+  }, [accessToken, isBrowserOnline, userId]);
 
   useEffect(() => {
     setReadings((prev) => {

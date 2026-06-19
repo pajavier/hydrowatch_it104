@@ -13,6 +13,7 @@ export type Database = {
         Row: {
           action: string;
           created_at: string;
+          device_id: string | null;
           id: string;
           message: string;
           severity: "Critical" | "Warning" | "Informational";
@@ -22,6 +23,7 @@ export type Database = {
         Insert: {
           action: string;
           created_at?: string;
+          device_id?: string | null;
           id?: string;
           message: string;
           severity: "Critical" | "Warning" | "Informational";
@@ -31,6 +33,7 @@ export type Database = {
         Update: {
           action?: string;
           created_at?: string;
+          device_id?: string | null;
           id?: string;
           message?: string;
           severity?: "Critical" | "Warning" | "Informational";
