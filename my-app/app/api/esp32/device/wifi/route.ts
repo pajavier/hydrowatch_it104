@@ -20,9 +20,27 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "WiFi SSID is required." }, { status: 400 });
   }
 
+  if (!password) {
+    return NextResponse.json({ error: "WiFi password is required." }, { status: 400 });
+  }
+
+  if (password.length < 8) {
+    return NextResponse.json({ error: "WiFi password must be at least 8 characters." }, { status: 400 });
+  }
+
+  console.log("[ESP32 WIFI UPDATE]", {
+    ssid,
+    password: maskSecret(password),
+    passwordLength: password.length,
+  });
+
   return proxyEsp32Request("wifi", {
     method: "POST",
     body: { ssid, password },
     acceptNetworkDrop: true,
   });
+}
+
+function maskSecret(value: string) {
+  return "*".repeat(value.length);
 }

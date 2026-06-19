@@ -484,7 +484,7 @@ export function subscribeToWaterReadings(
       },
     )
     .subscribe((status, error) => {
-      console.info("[HydroWatch Realtime] Channel status", {
+      const statusDetails = {
         status,
         error: error
           ? {
@@ -492,7 +492,16 @@ export function subscribeToWaterReadings(
               name: error.name,
             }
           : null,
-      });
+      };
+
+      if (status === "SUBSCRIBED") {
+        console.info("[HydroWatch Realtime] Channel subscribed", statusDetails);
+        return;
+      }
+
+      if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+        console.warn("[HydroWatch Realtime] Channel connection issue", statusDetails);
+      }
     });
 
   return () => {

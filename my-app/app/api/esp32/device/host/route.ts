@@ -30,7 +30,6 @@ export async function POST(req: NextRequest) {
   }
 
   const payload = {
-    current_ip_address: host,
     device_ip_address: host,
     updated_at: now,
   };

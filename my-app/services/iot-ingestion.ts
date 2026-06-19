@@ -434,7 +434,6 @@ async function updateSensorHealth(
         signal_strength_dbm: payload?.rssi,
         current_ssid: payload?.ssid,
         current_ip_address: payload?.ipAddress,
-        device_ip_address: payload?.ipAddress,
         device_id: payload?.deviceId,
         mac_address: payload?.macAddress,
         firmware_version: payload?.firmwareVersion,

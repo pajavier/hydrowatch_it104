@@ -15,6 +15,10 @@ type SettingsProps = {
 
 type DeviceStatusResponse = {
   ok: boolean;
+  status?: string | null;
+  connected_ssid?: string | null;
+  firmware_version?: string | null;
+  last_seen?: string | null;
   database?: {
     sensor_status?: string | null;
     last_reading_at?: string | null;
@@ -22,8 +26,6 @@ type DeviceStatusResponse = {
     consecutive_failures?: number | null;
     signal_strength_dbm?: number | null;
     current_ssid?: string | null;
-    current_ip_address?: string | null;
-    device_ip_address?: string | null;
     device_id?: string | null;
     mac_address?: string | null;
     firmware_version?: string | null;
@@ -33,12 +35,10 @@ type DeviceStatusResponse = {
   device?: {
     status?: string;
     ssid?: string;
-    ipAddress?: string;
     rssi?: number;
     lastSeen?: string;
     firmwareVersion?: string;
     deviceId?: string;
-    macAddress?: string;
     setupMode?: boolean;
   } | null;
   directReachable?: boolean;
@@ -72,7 +72,6 @@ export function Settings({ accessToken, environmentSettings, settings, onSave, o
   const [deviceStatus, setDeviceStatus] = useState<DeviceStatusResponse | null>(null);
   const [ssid, setSsid] = useState("");
   const [password, setPassword] = useState("");
-  const [deviceHost, setDeviceHost] = useState("");
   const [isDeviceLoading, setIsDeviceLoading] = useState(false);
   const [deviceMessage, setDeviceMessage] = useState<string | null>(null);
   const [deviceError, setDeviceError] = useState<string | null>(null);
@@ -83,15 +82,13 @@ export function Settings({ accessToken, environmentSettings, settings, onSave, o
     const rssi = toNullableNumber(direct?.rssi ?? database?.signal_strength_dbm);
 
     return {
-      status: direct?.status ?? database?.sensor_status ?? "UNKNOWN",
-      ssid: nonEmptyText(direct?.ssid ?? database?.current_ssid, "Not connected"),
-      ipAddress: nonEmptyText(direct?.ipAddress ?? database?.current_ip_address ?? database?.device_ip_address, "Unknown"),
-      lastSeen: database?.updated_at ?? database?.last_reading_at ?? direct?.lastSeen ?? null,
+      status: deviceStatus?.status ?? database?.sensor_status ?? "UNKNOWN",
+      ssid: nonEmptyText(deviceStatus?.connected_ssid ?? database?.current_ssid ?? direct?.ssid, "Not connected"),
+      lastSeen: deviceStatus?.last_seen ?? database?.last_successful_post_at ?? database?.last_reading_at ?? null,
       rssi,
       signalStrength: formatSignalStrength(rssi),
-      firmwareVersion: nonEmptyText(direct?.firmwareVersion ?? database?.firmware_version, "Unknown"),
+      firmwareVersion: nonEmptyText(deviceStatus?.firmware_version ?? database?.firmware_version ?? direct?.firmwareVersion, "Unknown"),
       deviceId: nonEmptyText(direct?.deviceId ?? database?.device_id, "Unknown"),
-      macAddress: nonEmptyText(direct?.macAddress ?? database?.mac_address, "Unknown"),
       setupMode: direct?.setupMode ?? database?.setup_mode ?? false,
       directReachable: Boolean(deviceStatus?.directReachable),
       remoteManagementSupported: deviceStatus?.remoteManagementSupported ?? true,
@@ -137,10 +134,6 @@ export function Settings({ accessToken, environmentSettings, settings, onSave, o
     try {
       const payload = await fetchEsp32Api<DeviceStatusResponse>("/api/esp32/device/status");
       setDeviceStatus(payload);
-      const knownHost = payload.database?.current_ip_address ?? payload.database?.device_ip_address ?? payload.device?.ipAddress;
-      if (knownHost) {
-        setDeviceHost((currentHost) => currentHost.trim() ? currentHost : knownHost);
-      }
     } catch (error) {
       const apiError = error as Esp32ApiError;
       if (!options?.quiet || apiError.status === 401 || apiError.code === "ESP32_REMOTE_MANAGEMENT_UNSUPPORTED") {
@@ -167,36 +160,23 @@ export function Settings({ accessToken, environmentSettings, settings, onSave, o
     setDeviceMessage(null);
 
     try {
+      if (!password) {
+        throw createEsp32ApiError("Enter the WiFi password before saving.", 400);
+      }
+
+      if (password.length < 8) {
+        throw createEsp32ApiError("WiFi password must be at least 8 characters.", 400);
+      }
+
       await fetchEsp32Api<{ ok?: boolean; error?: string }>("/api/esp32/device/wifi", {
         method: "POST",
         body: JSON.stringify({ ssid, password }),
       });
       setPassword("");
-      setDeviceMessage("WiFi configuration sent. The ESP32 will reconnect automatically.");
+      setDeviceMessage("WiFi configuration sent. Watch the ESP32 status for the reconnect result.");
       await refreshDeviceStatus({ quiet: true });
     } catch (error) {
       setDeviceError(error instanceof Error ? error.message : "Unable to save WiFi configuration.");
-    } finally {
-      setIsDeviceLoading(false);
-    }
-  };
-
-  const submitDeviceHost = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setIsDeviceLoading(true);
-    setDeviceError(null);
-    setDeviceMessage(null);
-
-    try {
-      const payload = await fetchEsp32Api<{ ok?: boolean; error?: string; host?: string }>("/api/esp32/device/host", {
-        method: "POST",
-        body: JSON.stringify({ host: deviceHost }),
-      });
-      if (payload?.host) setDeviceHost(payload.host);
-      setDeviceMessage("ESP32 host saved.");
-      await refreshDeviceStatus({ quiet: true });
-    } catch (error) {
-      setDeviceError(error instanceof Error ? error.message : "Unable to save ESP32 host.");
     } finally {
       setIsDeviceLoading(false);
     }
@@ -280,35 +260,13 @@ export function Settings({ accessToken, environmentSettings, settings, onSave, o
         </div>
 
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <StatusItem label="Device status" value={formatStatus(device.status, device.directReachable)} />
+          <StatusItem label="Device status" value={formatStatus(device.status, device.directReachable, device.setupMode)} />
           <StatusItem label="Connected SSID" value={device.ssid} />
-          <StatusItem label="Device IP Address" value={device.ipAddress} />
           <StatusItem label="Last Seen" value={formatTimestamp(device.lastSeen)} />
           <StatusItem label="Signal Strength" value={device.signalStrength} />
           <StatusItem label="Firmware Version" value={device.firmwareVersion} />
           <StatusItem label="Device ID" value={device.deviceId} />
-          <StatusItem label="MAC Address" value={device.macAddress} />
         </div>
-
-        <form className="mt-5 grid gap-3 lg:grid-cols-[1fr_auto]" onSubmit={submitDeviceHost}>
-          <label className="block">
-            <span className="mb-1 block text-sm text-slate-300">ESP32 Host / IP Address</span>
-            <input
-              className="w-full rounded-xl bg-[#0B1128] px-3 py-2"
-              value={deviceHost}
-              onChange={(event) => setDeviceHost(event.target.value)}
-              placeholder="192.168.1.42"
-              required
-            />
-          </label>
-          <button
-            className="self-end rounded-xl border border-white/10 px-4 py-2 font-bold text-sky-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
-            type="submit"
-            disabled={isDeviceLoading}
-          >
-            Save Host
-          </button>
-        </form>
 
         <form className="mt-5 grid gap-3 lg:grid-cols-[1fr_1fr_auto]" onSubmit={submitWifiConfiguration}>
           <label className="block">
@@ -327,7 +285,9 @@ export function Settings({ accessToken, environmentSettings, settings, onSave, o
               type="password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              placeholder="Password is never displayed"
+              placeholder="Enter network password"
+              minLength={8}
+              required
             />
           </label>
           <button
@@ -507,10 +467,11 @@ function EnvironmentSettingsForm({
   );
 }
 
-function formatStatus(status: string, directReachable: boolean) {
-  if (directReachable) return "Online";
+function formatStatus(status: string, directReachable: boolean, setupMode: boolean) {
+  if (setupMode) return "Setup mode";
   if (status === "ONLINE") return "Online";
   if (status === "OFFLINE") return "Offline";
+  if (directReachable) return "Reachable";
   return "Unknown";
 }
 

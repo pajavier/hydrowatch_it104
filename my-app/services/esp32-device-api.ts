@@ -125,7 +125,7 @@ export async function proxyEsp32Request(
   const host = await getRegisteredDeviceIp();
   if (!host) {
     return NextResponse.json(
-      { error: "ESP32 IP address is not registered yet. Wait for a reading or save the ESP32 host/IP in Settings." },
+      { error: "ESP32 host not available." },
       { status: 503 },
     );
   }
@@ -137,6 +137,14 @@ export async function proxyEsp32Request(
     const headers = new Headers({ "Content-Type": "application/json" });
     if (apiKey) {
       headers.set("X-HydroWatch-Key", apiKey);
+    }
+
+    if (command === "wifi") {
+      console.log("[ESP32 WIFI PROXY]", {
+        url: `${baseUrl}/api/${command}`,
+        method: init?.method ?? "GET",
+        body: summarizeProxyBody(init?.body),
+      });
     }
 
     response = await fetch(`${baseUrl}/api/${command}`, {
@@ -200,4 +208,17 @@ function formatEsp32ContactError(error: unknown) {
   }
 
   return `Unable to contact ESP32: ${error.message}`;
+}
+
+function summarizeProxyBody(body: unknown) {
+  if (!body || typeof body !== "object") return body;
+
+  const candidate = body as { ssid?: unknown; password?: unknown };
+  if (typeof candidate.password !== "string") return body;
+
+  return {
+    ...candidate,
+    password: "*".repeat(candidate.password.length),
+    passwordLength: candidate.password.length,
+  };
 }

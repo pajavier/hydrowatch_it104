@@ -46,6 +46,9 @@ export function useHydrowatchSystem(accessToken: string | null, userId: string |
   const [isLoadingMonitoring, setIsLoadingMonitoring] = useState(true);
   const [monitoringError, setMonitoringError] = useState<string | null>(null);
   const [readingsError, setReadingsError] = useState<string | null>(null);
+  const [isBrowserOnline, setIsBrowserOnline] = useState(() => (
+    typeof navigator === "undefined" ? true : navigator.onLine
+  ));
   const [liveClock, setLiveClock] = useState(() => Date.now());
   const readingsRef = useRef<WaterReading[]>([]);
   const seenReadingIdsRef = useRef<Set<WaterReading["id"]>>(new Set());
@@ -58,6 +61,21 @@ export function useHydrowatchSystem(accessToken: string | null, userId: string |
     }, 1000);
 
     return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const updateBrowserNetworkState = () => {
+      setIsBrowserOnline(navigator.onLine);
+    };
+
+    updateBrowserNetworkState();
+    window.addEventListener("online", updateBrowserNetworkState);
+    window.addEventListener("offline", updateBrowserNetworkState);
+
+    return () => {
+      window.removeEventListener("online", updateBrowserNetworkState);
+      window.removeEventListener("offline", updateBrowserNetworkState);
+    };
   }, []);
 
   useEffect(() => {
@@ -317,6 +335,11 @@ export function useHydrowatchSystem(accessToken: string | null, userId: string |
       return;
     }
 
+    if (!isBrowserOnline) {
+      console.warn("[HydroWatch Hook] Realtime subscription paused because the browser is offline");
+      return;
+    }
+
     return subscribeToWaterReadings({ accessToken, userId }, (payload) => {
       console.info("[HydroWatch Hook] Realtime callback fired", payload);
       const reading = waterReadingFromRealtimePayload(payload);
@@ -327,7 +350,7 @@ export function useHydrowatchSystem(accessToken: string | null, userId: string |
 
       void recordReading(reading, true);
     });
-  }, [accessToken, isRealtimeEnabled, recordReading, userId]);
+  }, [accessToken, isBrowserOnline, isRealtimeEnabled, recordReading, userId]);
 
   useEffect(() => {
     setReadings((prev) => {
