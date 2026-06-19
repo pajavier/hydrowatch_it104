@@ -30,6 +30,7 @@ export function getDataSupabaseClient(accessToken: string) {
       },
       global: {
         headers: {
+          apikey: key,
           Authorization: `Bearer ${accessToken}`,
         },
       },

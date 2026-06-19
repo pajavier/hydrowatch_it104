@@ -394,20 +394,30 @@ export async function insertPrediction(prediction: {
   projectedNTU: number;
   userId: string;
 }) {
-  const client = getDataSupabaseClient(prediction.accessToken);
-  if (!client) return;
+  const supabase = getDataSupabaseClient(prediction.accessToken);
+  if (!supabase) return;
   console.info("[HydroWatch Supabase] Inserting derived row", {
     destinationTable: "predictions",
     readingId: prediction.readingId,
     readingIdType: typeof prediction.readingId,
   });
-  await client.from("predictions").insert({
+  const payload = {
     user_id: prediction.userId,
     reading_id: prediction.readingId,
     label: prediction.label,
     confidence: prediction.confidence,
     projected_ntu: prediction.projectedNTU,
-  });
+  };
+  const { data, error } = await supabase
+    .from("predictions")
+    .insert(payload);
+
+  if (error) {
+    console.error("Prediction insert failed:", error);
+    throw error;
+  }
+
+  return data;
 }
 
 export async function insertAlerts(alerts: SystemAlert[], scope: UserScope) {
